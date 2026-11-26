@@ -956,13 +956,142 @@ svg {
   }
 }
 
+/* Телефон в портрете: весь отряд в одну строку на всю ширину, форс-бай и эйрдроп — строкой ниже */
+@media (max-width: 520px) {
+  .hud-bottom {
+    left: 6px;
+    right: 6px;
+    transform: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+    max-width: none;
+  }
+
+  .hud-bottom [data-squad] {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .hud-bottom > div:last-child {
+    flex-direction: row;
+  }
+
+  .hud-bottom > div:last-child .btn {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 6px;
+    font-size: 12px;
+  }
+
+  .squad-card {
+    width: auto;
+    min-width: 0;
+    height: 60px;
+    padding: 5px 4px 4px 8px;
+  }
+
+  .squad-card .nick {
+    font-size: 11px;
+  }
+
+  .squad-card .key {
+    display: none;
+  }
+
+  .squad-card .cost {
+    font-size: 12px;
+    left: 8px;
+    bottom: 4px;
+  }
+
+  .squad-card .icon {
+    font-size: 14px;
+    right: 4px;
+    bottom: 22px;
+  }
+}
+
 @media (max-height: 520px) {
   .hud-side {
     top: 64px;
     max-height: calc(100vh - 160px);
   }
 
+  /* Карточка бойца: кнопки апгрейда/продажи — сразу под именем, характеристики ниже */
+  [data-inspector]:not(.hidden) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  [data-inspector] > * {
+    order: 2;
+  }
+
+  [data-inspector] > :first-child {
+    order: 0;
+  }
+
+  [data-inspector] > :last-child {
+    order: 1;
+    margin-top: 8px;
+  }
+
+  /* Телефон в альбомной ориентации: компактные панели, чтобы карте осталась бóльшая часть экрана */
+  .hud-top .lbl-text,
+  .squad-card .role,
+  .squad-card .key {
+    display: none;
+  }
+
+  .hud-cluster {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .hud-cluster .btn {
+    padding: 6px 9px;
+  }
+
+  .stat-box {
+    padding: 2px 7px;
+  }
+
+  .stat-box .v {
+    font-size: 14px;
+  }
+
+  .hud-bottom {
+    padding: 5px;
+    gap: 5px;
+  }
+
+  .hud-bottom .btn {
+    padding: 6px 9px;
+    font-size: 12px;
+  }
+
   .squad-card {
-    height: 58px;
+    width: 84px;
+    min-width: 84px;
+    height: 50px;
+    padding: 4px 5px 3px 9px;
+  }
+
+  .squad-card .nick {
+    font-size: 12px;
+  }
+
+  .squad-card .cost {
+    font-size: 12px;
+    bottom: 3px;
+    left: 9px;
+  }
+
+  .squad-card .icon {
+    font-size: 15px;
+    bottom: 3px;
   }
 }

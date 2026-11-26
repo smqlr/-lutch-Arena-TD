@@ -420,7 +420,9 @@ export class Game {
     this.scene.shockwave(tw.pos, 2.2, ROLE_COLORS[unit.role], 0.6);
     this.scene.sparks(tw.pos.clone().setY(tw.pos.y + 0.4), ROLE_COLORS[unit.role], 12, 3);
     this.cb.toast(t('placed', { nick: unit.nick, slot: loc(spot.name) }), 'good');
-    this.select(tw);
+    // На телефоне карточка бойца закрыла бы полкарты — открываем её только по тапу на бойца
+    if (window.innerWidth > 520 && window.innerHeight > 520) this.select(tw);
+    else this.cb.selectionChanged();
     return true;
   }
 
