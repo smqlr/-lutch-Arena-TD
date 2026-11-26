@@ -4,6 +4,8 @@ A tactical 3D tower defense set in an esports arena. Build a squad of five pros,
 enemy route — ground, rooftops, crates, containers — and hold the plant site against 15 enemy types,
 from eco rushers and lag-jumping ping abusers to cheaters, flash trolls and the Spinbot boss.
 
+**▶ Play online: https://smqlr.github.io/-lutch-Arena-TD/**
+
 Built with TypeScript, Vite, Three.js, Tailwind CSS and the Web Audio API. Made for Yandex Games
 (English by default, Russian available in Settings).
 
@@ -27,6 +29,11 @@ npm run preview   # serve the production build at http://localhost:4173
 ```
 
 On Windows PowerShell with script execution disabled, use `npm.cmd` instead of `npm`.
+
+## GitHub Pages
+
+Every push to `main` builds the game and publishes it to GitHub Pages
+(`.github/workflows/deploy-pages.yml`; Settings → Pages → Source must be set to **GitHub Actions**).
 
 ## Yandex Games
 
