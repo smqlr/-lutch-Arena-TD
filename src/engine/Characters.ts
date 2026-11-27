@@ -12,6 +12,7 @@ import type { ArmSolution, HandSpec, SolvedPose, WeaponPlacement } from './Poses
 import {
   alertTexture, blingTexture, keyboardTexture, matrixTexture, pajamaTexture, pixelTexture, ringTexture, textTexture, unplugTexture, wifiTexture,
 } from './Textures';
+import { getTexture } from './Textures';
 
 /**
  * Модели персонажей: бойцы отряда (внешность, фирменные позы, предметы) и враги
@@ -354,6 +355,28 @@ interface Hold {
   lF: THREE.Quaternion;
 }
 
+/** Враги с энергощитом: полоска HP со шкалой щита */
+const SHIELDED = new Set<EnemyKind>(['spinbot', 'reactor_core', 'overpass_overlord', 'container_mech']);
+
+const ghostMats = new Map<string, THREE.Material>();
+/** Полупрозрачный силуэт: материалы гуманоида заменяются прозрачными копиями (кэш на все модели) */
+function ghostly(h: Humanoid, opacity: number): void {
+  h.root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const src = m.material as THREE.Material;
+    const key = `${src.uuid}|${opacity}`;
+    let g = ghostMats.get(key);
+    if (!g) {
+      g = src.clone();
+      g.transparent = true;
+      g.opacity = opacity;
+      ghostMats.set(key, g);
+    }
+    m.material = g;
+  });
+}
+
 function assertNever(x: never): never {
   throw new Error(`Unknown enemy kind: ${String(x)}`);
 }
@@ -432,6 +455,22 @@ export class EnemyModel {
   private rigArms: THREE.Object3D[] = [];
   private blink: THREE.Object3D[] = [];
   private rack: THREE.Group | null = null;
+  /** Масштаб щита Кемпера / Штурмовика */
+  private shieldK = 1;
+  private shieldOpacity: [number, number] = [0.06, 0.22];
+  /** Боссы и мини-боссы */
+  private sandRing: THREE.Group | null = null;
+  private sandMat: THREE.MeshBasicMaterial | null = null;
+  private stormOn = false;
+  private storm = 0;
+  private rage = false;
+  private flames: THREE.Object3D[] = [];
+  private coreMat: THREE.MeshStandardMaterial | null = null;
+  private pulseK = 0;
+  private turrets: THREE.Group[] = [];
+  private turretMuzzles: THREE.Object3D[] = [];
+  private turretAim: THREE.Vector3 | null = null;
+  private cape: THREE.Object3D | null = null;
 
   constructor(kind: EnemyKind) {
     this.kind = kind;
@@ -500,26 +539,363 @@ export class EnemyModel {
         break;
       }
       case 'ddos': {
-        const dark = stdMat(0x1f2937, { rough: 0.4, metal: 0.5 });
-        add(this.body, boxG(0.62, 0.18, 0.62), dark, 0, 0, 0);
-        add(this.body, boxG(0.64, 0.04, 0.2), stdMat(0xf43f5e, { emissive: 0xf43f5e, ei: 0.8 }), 0, 0.06, 0);
-        add(this.body, cachedGeo('ddosPod', () => new THREE.SphereGeometry(0.13, 12, 8)), stdMat(0x111827, { rough: 0.2, metal: 0.6 }), 0, -0.15, 0.12);
-        add(this.body, cylG(0.008, 0.008, 0.35, 6), dark, 0.18, 0.25, -0.15);
-        const rotorMat = shared('rotorRed', () => new THREE.MeshBasicMaterial({ color: 0xf87171, transparent: true, opacity: 0.35, depthWrite: false }));
-        for (let i = 0; i < 4; i++) {
-          const a = Math.PI / 4 + (i * Math.PI) / 2;
-          const x = Math.cos(a) * 0.55;
-          const z = Math.sin(a) * 0.55;
-          add(this.body, boxG(0.5, 0.05, 0.06), dark, x / 2, 0.02, z / 2, 0, -a, 0);
-          add(this.body, cylG(0.05, 0.05, 0.1, 8), dark, x, 0.06, z);
-          const rotor = new THREE.Mesh(cylG(0.26, 0.26, 0.01, 18), rotorMat);
-          rotor.position.set(x, 0.12, z);
-          this.body.add(rotor);
-          this.parts.push(add(rotor, boxG(0.5, 0.008, 0.04), stdMat(0x7f1d1d), 0, 0, 0, 0, 0, 0, false));
-        }
-        for (const sx of [-1, 1]) add(this.body, boxG(0.05, 0.03, 0.02), stdMat(0xff1f3d, { emissive: 0xff1f3d, ei: 3 }), sx * 0.1, 0.0, 0.32, 0, 0, 0, false);
-        this.parts.push(add(this.body, cachedGeo('ddosLed', () => new THREE.SphereGeometry(0.05, 8, 6)), stdMat(0xff1f3d, { emissive: 0xff1f3d, ei: 3 }), 0, 0.12, 0.3, 0, 0, 0, false));
+        this.buildDrone(this.body);
         barH = 0.9;
+        break;
+      }
+      case 'ddos_overlord': {
+        // Увеличенный в 1.6 раза дрон: красное ядро снизу, пушки, пульсирующее кольцо ауры
+        const g = new THREE.Group();
+        g.scale.setScalar(1.6);
+        this.body.add(g);
+        this.buildDrone(g);
+        const red = stdMat(0xff1f3d, { emissive: 0xff1f3d, ei: 3 });
+        const dark = stdMat(0x111827, { rough: 0.3, metal: 0.6 });
+        add(g, sphG(0.12, 12, 8), red, 0, -0.2, 0, 0, 0, 0, false);
+        for (const sx of [-1, 1]) {
+          add(g, boxG(0.08, 0.08, 0.32), dark, sx * 0.16, -0.14, 0.08);
+          add(g, cylG(0.02, 0.02, 0.3, 6), dark, sx * 0.16, -0.14, 0.32, Math.PI / 2, 0, 0, false);
+        }
+        for (let i = 0; i < 3; i++) add(g, cylG(0.006, 0.006, 0.3, 4), dark, -0.12 + i * 0.12, 0.27, -0.2, -0.3, 0, 0, false);
+        this.addRing(0xf43f5e, 5);
+        barW = 1.2;
+        barH = 1.4;
+        break;
+      }
+      case 'dune_juggernaut': {
+        const sandArmor = stdMat(0xc28e4c, { rough: 0.5, metal: 0.4 });
+        const h = this.mkHuman({
+          skin, hair, shirt: 0xa47640, pants: 0x9a6f3c, vest: 0xc28e4c, bulky: true, kneePads: true, accent: 0xf59e0b, gear: 'helmet', gearColor: 0xb8854a,
+          mask: true, maskColor: 0x5c4326, sleeves: 'long', gloves: true, girth: 1.1, scale: 1.85,
+        });
+        // Янтарный визор, наплечники, нагрудная плита и пулемётная лента
+        add(h.head, boxG(0.27, 0.07, 0.05), stdMat(0xf59e0b, { emissive: 0xf59e0b, ei: 1.8, rough: 0.1 }), 0, 0.165, 0.13, 0, 0, 0, false);
+        for (const arm of [h.armL, h.armR]) add(arm, boxG(0.25, 0.16, 0.27), sandArmor, 0, -0.03, 0);
+        add(h.body, boxG(0.46, 0.24, 0.06), sandArmor, 0, 1.36, 0.2);
+        const brass = stdMat(0xd4a017, { rough: 0.3, metal: 0.8 });
+        for (let i = 0; i < 9; i++) add(h.body, boxG(0.05, 0.03, 0.07), brass, -0.2 + i * 0.05, 1.12 + i * 0.045, 0.24, 0, 0, 0.75, false);
+        // Тяжёлый пулемёт T3 у бедра
+        this.equip(h, 'lmg', (w) => hipPlacement(h, w, new THREE.Vector3(-0.2, -0.1, 1)), HIP_L, false, 2, 0xf59e0b);
+        this.buildSandRing();
+        this.stepAmp = 0.38;
+        barW = 2.0;
+        barH = 4.25;
+        break;
+      }
+      case 'alley_pyromancer': {
+        const h = this.mkHuman({
+          skin, hair, shirt: 0xea580c, pants: 0xc2410c, vest: 0x3f3f46, bulky: true, kneePads: true, accent: 0xfacc15, gear: 'gasmask',
+          sleeves: 'long', gloves: true, scale: 1.75,
+        });
+        add(h.head, boxG(0.24, 0.1, 0.04), stdMat(0x1f2937, { rough: 0.1, metal: 0.5, emissive: 0xf97316, ei: 0.25 }), 0, 0.16, 0.135, 0, 0, 0, false);
+        // Два баллона за спиной с жёлтой полосой
+        const tank = stdMat(0xf97316, { rough: 0.35, metal: 0.5 });
+        const band = stdMat(0xfacc15, { emissive: 0xfacc15, ei: 0.3 });
+        const steel = stdMat(0x52525b, { rough: 0.3, metal: 0.8 });
+        for (const sx of [-1, 1]) {
+          add(h.body, cylG(0.16, 0.16, 0.7, 14), tank, sx * 0.17, 1.3, -0.34);
+          add(h.body, sphG(0.16, 12, 8), tank, sx * 0.17, 1.65, -0.34);
+          add(h.body, cylG(0.163, 0.163, 0.06, 14), band, sx * 0.17, 1.36, -0.34, 0, 0, 0, false);
+          add(h.body, cylG(0.03, 0.03, 0.1, 8), steel, sx * 0.17, 1.83, -0.34);
+        }
+        // Огнемёт: пулемёт с соплом и пламенем
+        this.equip(h, 'lmg', (w) => hipPlacement(h, w, new THREE.Vector3(-0.2, -0.12, 1)), HIP_L, false, 0, 0xf97316);
+        if (this.weapon) {
+          const m = this.weapon.muzzle;
+          add(m, cylG(0.05, 0.07, 0.14, 10), steel, 0, 0, 0.04, Math.PI / 2, 0, 0, false);
+          const flame = new THREE.Mesh(
+            cachedGeo('pyroFlame', () => new THREE.ConeGeometry(0.07, 0.32, 8)),
+            shared('pyroFlameMat', () => new THREE.MeshBasicMaterial({ color: 0xff8a1f, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false })),
+          );
+          flame.rotation.x = Math.PI / 2;
+          flame.position.z = 0.27;
+          m.add(flame);
+          this.flames.push(flame);
+        }
+        const hose = new THREE.CatmullRomCurve3([new THREE.Vector3(0.17, 1.0, -0.34), new THREE.Vector3(0.32, 0.85, -0.1), new THREE.Vector3(0.28, 0.95, 0.2)]);
+        add(h.body, cachedGeo('pyroHose', () => new THREE.TubeGeometry(hose, 14, 0.025, 5, false)), stdMat(0x18181b, { rough: 0.6 }), 0, 0, 0, 0, 0, 0, false);
+        this.stepAmp = 0.42;
+        barW = 1.9;
+        barH = 4.0;
+        break;
+      }
+      case 'reactor_core': {
+        this.buildReactorCore();
+        barW = 2.4;
+        barH = 3.9;
+        break;
+      }
+      case 'overpass_overlord': {
+        const h = this.mkHuman({
+          skin, hair, shirt: 0x111827, pants: 0x0b0f19, vest: 0x1f2937, bulky: true, kneePads: true, accent: 0xef4444, gear: 'helmet', gearColor: 0x0f172a,
+          mask: true, maskColor: 0x111111, sleeves: 'long', gloves: true, girth: 1.08, scale: 1.9,
+        });
+        const graphite = stdMat(0x1f2937, { rough: 0.4, metal: 0.6 });
+        const red = stdMat(0xef4444, { emissive: 0xef4444, ei: 2.4, rough: 0.1 });
+        add(h.head, boxG(0.27, 0.075, 0.05), red, 0, 0.165, 0.13, 0, 0, 0, false);
+        for (const arm of [h.armL, h.armR]) {
+          add(arm, boxG(0.25, 0.16, 0.27), graphite, 0, -0.03, 0);
+          add(arm, boxG(0.255, 0.03, 0.275), red, 0, -0.1, 0, 0, 0, 0, false);
+        }
+        add(h.body, boxG(0.46, 0.22, 0.06), graphite, 0, 1.36, 0.2);
+        // Мини-турели на плечах: поворачиваются к ближайшей башне
+        for (const sx of [-1, 1]) {
+          const tur = new THREE.Group();
+          tur.position.set(sx * 0.34, 1.66, -0.06);
+          add(tur, boxG(0.18, 0.14, 0.22), graphite, 0, 0, 0);
+          add(tur, cylG(0.03, 0.03, 0.3, 8), stdMat(0x111827, { metal: 0.7, rough: 0.3 }), 0, 0.02, 0.2, Math.PI / 2, 0, 0, false);
+          add(tur, sphG(0.025, 6, 4), red, 0, 0.08, 0.06, 0, 0, 0, false);
+          const muzzle = new THREE.Object3D();
+          muzzle.position.set(0, 0.02, 0.36);
+          tur.add(muzzle);
+          h.body.add(tur);
+          this.turrets.push(tur);
+          this.turretMuzzles.push(muzzle);
+        }
+        this.equip(h, 'carbine', (w) => shoulderPlacement(h, w, new THREE.Vector3(-0.35, -0.2, 0.9)), HIP_L, false, 2, 0xef4444);
+        this.addEnergyShield(2.3, 0xef4444, 2.1);
+        this.stepAmp = 0.4;
+        barW = 2.4;
+        barH = 4.4;
+        break;
+      }
+      case 'carpet_ninja': {
+        const h = this.mkHuman({
+          skin, hair, shirt: 0x1e293b, pants: 0x111827, accent: 0xdc2626, gear: 'hood', gearColor: 0x111827, mask: true, maskColor: 0x0b0b0b,
+          sleeves: 'long', gloves: true, scale: 1.25,
+        });
+        // Красная повязка, шарф и накидка из ковра, нож в правой руке
+        add(h.head, cylG(0.158, 0.158, 0.035, 18), stdMat(0xdc2626, { emissive: 0x7f1d1d, ei: 0.4 }), 0, 0.2, 0.01, -0.25, 0, 0, false);
+        const carpet = shared('ninjaCarpet', () => new THREE.MeshStandardMaterial({ map: getTexture('carpet'), roughness: 0.9, side: THREE.DoubleSide }));
+        add(h.body, torusG(0.14, 0.05), carpet, 0, 1.5, 0.01, Math.PI / 2, 0, 0, false);
+        const cape = add(h.body, cachedGeo('ninjaCape', () => new THREE.PlaneGeometry(0.55, 1.05)), carpet, 0, 1.0, -0.19, 0.12, 0, 0, false);
+        this.cape = cape;
+        poseArms(h, { at: [0.3, 1.02, 0.28], pole: [1, -0.5, -0.6] }, { at: [-0.22, 1.25, 0.28], pole: [-1, -1, 0] });
+        const knife = buildItem('knife');
+        knife.position.set(0.3, 1.02, 0.28);
+        knife.rotation.x = 0.5;
+        h.body.add(knife);
+        h.body.rotation.x = 0.18;
+        ghostly(h, 0.78);
+        this.stepAmp = 0.75;
+        barH = 2.85;
+        break;
+      }
+      case 'market_baron': {
+        const h = this.mkHuman({
+          skin, hair: 0x2b1d14, hairStyle: 'short', beard: 'stubble', shirt: 0x3f4a2e, pants: 0x4b5320, vest: 0x7f1d1d, bulky: true,
+          accent: 0xf59e0b, gear: 'none', sleeves: 'long', gloves: true, girth: 1.15, belly: true, scale: 1.3,
+        });
+        const gold = stdMat(0xf59e0b, { rough: 0.25, metal: 0.8, emissive: 0xb45309, ei: 0.3 });
+        // Золотой рюкзак со скаткой и лямками
+        add(h.body, boxG(0.45, 0.55, 0.3), gold, 0, 1.3, -0.36);
+        add(h.body, cylG(0.1, 0.1, 0.5, 12), stdMat(0xca8a04, { rough: 0.4, metal: 0.6 }), 0, 1.64, -0.36, 0, 0, Math.PI / 2);
+        for (const sx of [-1, 1]) add(h.body, boxG(0.06, 0.42, 0.02), stdMat(0x3f2a14, { rough: 0.8 }), sx * 0.13, 1.33, 0.2, 0, 0, 0, false);
+        add(h.body, boxG(0.12, 0.12, 0.02), stdMat(0xfde047, { emissive: 0xfacc15, ei: 1.2 }), 0, 1.32, -0.515, 0, 0, Math.PI / 4, false);
+        this.equip(h, 'smg', (w) => shoulderPlacement(h, w, new THREE.Vector3(-0.2, -0.15, 1)), HIP_L, false, 2, 0xf59e0b);
+        this.addRing(0xfbbf24, 5);
+        barW = 1.2;
+        barH = 2.95;
+        break;
+      }
+      case 'long_awper': {
+        const h = this.mkHuman({
+          skin, hair, shirt: 0xb08d57, pants: 0x8b6d3f, vest: 0x6b5a33, accent: 0xf97316, gear: 'hood', gearColor: 0x9c7b4a, mask: true, maskColor: 0x6b5a33,
+          sleeves: 'long', gloves: true, kneePads: true, scale: 1.25,
+        });
+        // Гилли: свисающие лоскуты на плечах и спине
+        const ghillie = [stdMat(0x7c6a3c, { rough: 1 }), stdMat(0x5b5a2e, { rough: 1 }), stdMat(0xa08850, { rough: 1 })];
+        for (let i = 0; i < 14; i++) {
+          const a = (i / 14) * Math.PI * 2;
+          add(h.body, boxG(0.05, 0.2 + (i % 3) * 0.06, 0.02), ghillie[i % 3], Math.cos(a) * 0.24, 1.38 + (i % 2) * 0.12, Math.sin(a) * 0.17, (i % 4) * 0.12, a, 0.15, false);
+        }
+        const w = buildWeapon('sniper', 2, 0xf97316);
+        h.weaponMount.position.set(0, 0, 0);
+        h.weaponMount.quaternion.identity();
+        h.weaponMount.add(w.group);
+        this.weapon = w;
+        this.holdLow = this.holdFor(h, w, shoulderPlacement(h, w, new THREE.Vector3(-0.35, -0.42, 0.84)), HIP_L);
+        this.holdAim = this.holdFor(h, w, shoulderPlacement(h, w, new THREE.Vector3(0, -0.02, 1)), HIP_L);
+        this.applyHold(0);
+        this.kneelA = kneelAngle(1.25);
+        this.buildLaser();
+        barH = 2.85;
+        break;
+      }
+      case 'short_breacher': {
+        const h = this.mkHuman({
+          skin, hair, shirt: 0x1f2937, pants: 0x111827, vest: 0x27303d, bulky: true, kneePads: true, accent: 0xb45309, gear: 'helmet', gearColor: 0x1b2330,
+          mask: true, maskColor: 0x0b0b0b, sleeves: 'long', gloves: true, scale: 1.35,
+        });
+        // Дробовик в правой руке, баллистический щит без неона — в левой
+        this.equip(h, 'shotgun', (w) => gripPlacement(w, new THREE.Vector3(0.42, 1.2, 0.3), [0, 0, 1]), { at: [-0.15, 1.2, 0.36], pole: [-1, -1, 0] }, true);
+        this.buildRiotShield(null, 1.3);
+        this.addRing(0xb45309, 4.5);
+        this.stepAmp = 0.45;
+        barW = 1.2;
+        barH = 3.05;
+        break;
+      }
+      case 'flash_maestro': {
+        const h = this.mkHuman({
+          skin, hair: 0x4a3222, hairStyle: 'short', shirt: 0x27272a, pants: 0x3f3f46, vest: 0x3f4a2e, accent: 0xfef08a, gear: 'none', sleeves: 'short',
+          gloves: true, mouthOpen: true, scale: 1.25,
+        });
+        // Руки широко разведены — жонглирует флешками
+        poseArms(h, { at: [0.5, 1.5, 0.2], pole: [1, -1, 0] }, { at: [-0.5, 1.5, 0.2], pole: [-1, -1, 0] });
+        const canMat = stdMat(0xd6d3d1, { metal: 0.4, rough: 0.4 });
+        const glow = stdMat(0xffffff, { emissive: 0xfef9c3, ei: 2.2 });
+        const can = cachedGeo('flashCan', () => new THREE.CylinderGeometry(0.07, 0.07, 0.2, 10));
+        for (const [x, y] of [[-0.14, 1.4], [0, 1.4], [0.14, 1.4], [-0.07, 1.18], [0.07, 1.18]] as [number, number][]) {
+          add(h.body, can, canMat, x, y, 0.2, 0, 0, 0, false);
+          add(h.body, cylG(0.072, 0.072, 0.03, 10), glow, x, y + 0.04, 0.2, 0, 0, 0, false);
+        }
+        const orbit = new THREE.Group();
+        orbit.position.y = 2.0;
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const fb = new THREE.Group();
+          fb.position.set(Math.cos(a) * 0.75, Math.sin(a * 2) * 0.18, Math.sin(a) * 0.75);
+          fb.rotation.set(a, 0, a * 0.5);
+          add(fb, can, canMat, 0, 0, 0, 0, 0, 0, false);
+          add(fb, cylG(0.072, 0.072, 0.04, 10), glow, 0, 0.05, 0, 0, 0, 0, false);
+          orbit.add(fb);
+        }
+        this.root.add(orbit);
+        this.orbit = orbit;
+        barH = 2.9;
+        break;
+      }
+      case 'fountain_tank': {
+        const steel = stdMat(0x475569, { rough: 0.35, metal: 0.7 });
+        const h = this.mkHuman({
+          skin, hair, shirt: 0x334155, pants: 0x1e293b, vest: 0x475569, bulky: true, kneePads: true, accent: 0x94a3b8, gear: 'helmet', gearColor: 0x334155,
+          mask: true, maskColor: 0x1e293b, sleeves: 'long', gloves: true, girth: 1.2, scale: 1.45,
+        });
+        // Забрало со смотровой щелью, массивные наплечники, нагрудная плита
+        add(h.head, boxG(0.3, 0.22, 0.06), steel, 0, 0.12, 0.14);
+        add(h.head, boxG(0.22, 0.025, 0.02), stdMat(0xef4444, { emissive: 0xef4444, ei: 1.5 }), 0, 0.17, 0.175, 0, 0, 0, false);
+        for (const arm of [h.armL, h.armR]) add(arm, boxG(0.28, 0.18, 0.3), steel, 0, -0.03, 0);
+        add(h.body, boxG(0.5, 0.3, 0.06), steel, 0, 1.33, 0.21);
+        this.equip(h, 'lmg', (w) => hipPlacement(h, w, new THREE.Vector3(-0.2, -0.1, 1)), HIP_L, false, 1, 0x94a3b8);
+        this.stepAmp = 0.35;
+        barW = 1.4;
+        barH = 3.35;
+        break;
+      }
+      case 'yard_sapper': {
+        const h = this.mkHuman({
+          skin, hair: 0x4a3222, hairStyle: 'short', beard: 'stubble', shirt: 0x556b2f, pants: 0x4d5a2e, accent: 0xef4444, gear: 'bandana', gearColor: 0xb91c1c,
+          sleeves: 'none', mouthOpen: true, scale: 1.25,
+        });
+        const red = stdMat(0xb91c1c, { rough: 0.6 });
+        // Связка динамита с таймером на груди, C4 с мигающим диодом на спине, детонатор в руке
+        for (let i = 0; i < 6; i++) add(h.body, cylG(0.035, 0.035, 0.26, 8), red, -0.13 + i * 0.052, 1.25, 0.16);
+        add(h.body, boxG(0.34, 0.04, 0.09), stdMat(0x18181b), 0, 1.25, 0.16, 0, 0, 0, false);
+        add(h.body, boxG(0.15, 0.08, 0.03), stdMat(0x18181b), 0, 1.34, 0.21, 0, 0, 0, false);
+        add(h.body, boxG(0.11, 0.045, 0.01), stdMat(0x22c55e, { emissive: 0x22c55e, ei: 2 }), 0, 1.34, 0.227, 0, 0, 0, false);
+        add(h.body, boxG(0.3, 0.2, 0.1), stdMat(0x78716c, { rough: 0.7 }), 0, 1.3, -0.19);
+        this.blink.push(add(h.body, sphG(0.03, 8, 6), stdMat(0xff1f3d, { emissive: 0xff1f3d, ei: 3 }), 0.08, 1.37, -0.245, 0, 0, 0, false));
+        poseArms(h, { at: [0.3, 1.25, 0.32], pole: [1, -1, -0.2] }, RUN_L);
+        const det = buildItem('radio');
+        det.position.set(0.3, 1.25, 0.32);
+        h.body.add(det);
+        this.stepAmp = 0.75;
+        barH = 2.85;
+        break;
+      }
+      case 'vent_phantom': {
+        const h = this.mkHuman({
+          skin: 0x0b1220, hair: 0x0b1220, hairStyle: 'bald', shirt: 0x0b1220, pants: 0x0b1220, accent: 0x06b6d4, gear: 'helmet', gearColor: 0x0b1220,
+          sleeves: 'long', gloves: true, scale: 1.2,
+        });
+        // Светящиеся циановые линии костюма и визор
+        const cyan = stdMat(0x22d3ee, { emissive: 0x06b6d4, ei: 2.4 });
+        add(h.head, boxG(0.27, 0.06, 0.05), cyan, 0, 0.165, 0.13, 0, 0, 0, false);
+        for (const [arm, sx] of [[h.armL, -1], [h.armR, 1]] as [THREE.Group, number][]) add(arm, boxG(0.02, 0.32, 0.02), cyan, sx * 0.062, -0.17, 0.05, 0, 0, 0, false);
+        for (const [leg, sx] of [[h.legL, -1], [h.legR, 1]] as [THREE.Group, number][]) add(leg, boxG(0.02, 0.8, 0.02), cyan, sx * 0.085, -0.45, 0.09, 0, 0, 0, false);
+        for (const sx of [-1, 1]) add(h.body, boxG(0.02, 0.36, 0.02), cyan, sx * 0.08, 1.3, 0.13, 0, 0, -sx * 0.45, false);
+        poseArms(h, RUN_R, RUN_L);
+        h.body.rotation.x = 0.25;
+        ghostly(h, 0.72);
+        this.stepAmp = 0.9;
+        barH = 2.7;
+        break;
+      }
+      case 'container_mech': {
+        this.buildContainerMech();
+        barW = 1.4;
+        barH = 2.75;
+        break;
+      }
+      case 'canal_amphibian': {
+        const h = this.mkHuman({
+          skin, hair, shirt: 0x0f172a, stripe: 0x0ea5e9, pants: 0x0f172a, accent: 0x0ea5e9, gear: 'balaclava', maskColor: 0x0f172a, sleeves: 'long',
+          gloves: true, boots: 0x111827, scale: 1.3,
+        });
+        // Светящаяся маска, регулятор и шланг, баллон, ласты
+        add(h.head, boxG(0.28, 0.14, 0.04), stdMat(0x111827, { rough: 0.4 }), 0, 0.16, 0.13, 0, 0, 0, false);
+        add(h.head, boxG(0.24, 0.1, 0.02), stdMat(0x67e8f9, { emissive: 0x22d3ee, ei: 1.4, rough: 0.05, metal: 0.3 }), 0, 0.16, 0.152, 0, 0, 0, false);
+        add(h.head, cylG(0.03, 0.03, 0.06, 8), stdMat(0x18181b), 0, 0.06, 0.15, Math.PI / 2, 0, 0, false);
+        add(h.body, cylG(0.11, 0.11, 0.62, 12), stdMat(0x334155, { rough: 0.35, metal: 0.6 }), 0, 1.25, -0.24);
+        add(h.body, cylG(0.04, 0.04, 0.08, 8), stdMat(0x18181b), 0, 1.6, -0.24);
+        const hose = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 1.64, -0.24), new THREE.Vector3(0.18, 1.72, -0.05), new THREE.Vector3(0.04, 1.73, 0.17)]);
+        add(h.body, cachedGeo('diveHose', () => new THREE.TubeGeometry(hose, 12, 0.02, 5, false)), stdMat(0x18181b, { rough: 0.6 }), 0, 0, 0, 0, 0, 0, false);
+        for (const leg of [h.legL, h.legR]) add(leg, boxG(0.2, 0.03, 0.44), stdMat(0x111827, { rough: 0.5 }), 0, -0.9, 0.2);
+        this.equip(h, 'rifle', (w) => shoulderPlacement(h, w, new THREE.Vector3(-0.45, -0.2, 0.86)), HIP_L, false, 1, 0x0ea5e9);
+        barH = 2.95;
+        break;
+      }
+      case 'bridge_rammer': {
+        const steel = stdMat(0x52525b, { rough: 0.4, metal: 0.7 });
+        const h = this.mkHuman({
+          skin, hair, shirt: 0x27272a, pants: 0x1f1f23, vest: 0x3f3f46, bulky: true, kneePads: true, accent: 0xfacc15, gear: 'helmet', gearColor: 0x27272a,
+          mask: true, maskColor: 0x111111, sleeves: 'long', gloves: true, girth: 1.15, scale: 1.45,
+        });
+        add(h.head, boxG(0.3, 0.2, 0.06), steel, 0, 0.12, 0.14);
+        add(h.head, boxG(0.22, 0.03, 0.02), stdMat(0x0f172a), 0, 0.17, 0.175, 0, 0, 0, false);
+        // Шипастые наплечники
+        const spike = cachedGeo('rammerSpike', () => new THREE.ConeGeometry(0.035, 0.12, 6));
+        for (const arm of [h.armL, h.armR]) {
+          add(arm, boxG(0.27, 0.17, 0.29), steel, 0, -0.03, 0);
+          for (let i = 0; i < 3; i++) add(arm, spike, stdMat(0xa1a1aa, { metal: 0.8, rough: 0.3 }), 0, 0.1, -0.09 + i * 0.09, 0, 0, 0, false);
+        }
+        // Таранный щит-клин спереди с hazard-полосой
+        const hazard = shared('hazardMat', () => new THREE.MeshStandardMaterial({ map: getTexture('hazard'), roughness: 0.6 }));
+        const wedge = new THREE.Group();
+        wedge.position.set(0, 0, 0.7);
+        this.body.add(wedge);
+        for (const sx of [-1, 1]) {
+          const plate = new THREE.Group();
+          plate.position.set(sx * 0.3, 0, -0.18);
+          plate.rotation.y = sx * 0.55;
+          add(plate, boxG(0.8, 1.75, 0.12), steel, 0, 0.98, 0);
+          add(plate, boxG(0.81, 0.18, 0.02), hazard, 0, 1.45, 0.07, 0, 0, 0, false);
+          add(plate, boxG(0.81, 0.18, 0.02), hazard, 0, 0.45, 0.07, 0, 0, 0, false);
+          wedge.add(plate);
+        }
+        poseArms(h, { at: [0.25, 1.3, 0.38], pole: [1, -1, 0] }, { at: [-0.25, 1.3, 0.38], pole: [-1, -1, 0] });
+        h.body.rotation.x = 0.12;
+        this.stepAmp = 0.4;
+        barW = 1.5;
+        barH = 3.4;
+        break;
+      }
+      case 'hill_jammer': {
+        const h = this.mkHuman({
+          skin, hair, shirt: 0x3f4a2e, pants: 0x3f4a2e, vest: 0x2f3a24, harness: true, kneePads: true, accent: 0xa855f7, gear: 'balaclava', maskColor: 0x27272a,
+          sleeves: 'long', gloves: true, scale: 1.25,
+        });
+        // Рюкзак с мачтой, тарелкой и вращающимся кольцом помех
+        const purple = stdMat(0xa855f7, { emissive: 0xa855f7, ei: 1.6, rough: 0.3 });
+        add(h.body, boxG(0.42, 0.55, 0.26), stdMat(0x3f4a2e, { rough: 0.8 }), 0, 1.25, -0.3);
+        add(h.body, cylG(0.02, 0.02, 0.8, 6), stdMat(0x52525b, { metal: 0.7, rough: 0.3 }), 0.12, 1.85, -0.32);
+        add(h.body, cachedGeo('jamDish', () => new THREE.SphereGeometry(0.24, 16, 8, 0, Math.PI * 2, 0, Math.PI / 3)), stdMat(0x7e22ce, { metal: 0.5, rough: 0.3, emissive: 0x581c87, ei: 0.5 }), 0.12, 2.12, -0.32, Math.PI * 0.8, 0, 0);
+        const ring = add(h.body, torusG(0.3, 0.025), purple, 0.12, 2.3, -0.32, Math.PI / 2, 0, 0, false);
+        this.parts.push(ring);
+        poseArms(h, HIP_R, HIP_L);
+        this.addRing(0xa855f7, 6);
+        barH = 3.05;
         break;
       }
       case 'smoker': {
@@ -648,7 +1024,7 @@ export class EnemyModel {
         });
         // Пистолет у правого края щита, левая рука держит щит за рукоять
         this.equip(h, 'pistol', (w) => gripPlacement(w, new THREE.Vector3(0.44, 1.36, 0.3), [0, 0, 1]), { at: [-0.15, 1.2, 0.36], pole: [-1, -1, 0] }, true);
-        this.buildRiotShield();
+        this.buildRiotShield(0x38bdf8, 1);
         this.kneelA = kneelAngle(CAMPER_SCALE);
         barW = 1.1;
         barH = 2.45;
@@ -837,7 +1213,7 @@ export class EnemyModel {
         assertNever(kind);
     }
     this.height = barH;
-    this.hp = new HpBar(barW, barH, kind === 'spinbot');
+    this.hp = new HpBar(barW, barH, SHIELDED.has(kind));
     this.root.add(this.hp.group);
   }
 
@@ -874,6 +1250,29 @@ export class EnemyModel {
     const sL = new THREE.Vector3(-h.shoulderX, SHOULDER_Y, 0);
     const fb = leftFallback;
     setArm(h, 'l', held.armL && !oneHand ? held.armL : solveArm(sL, new THREE.Vector3(...fb.at), new THREE.Vector3(...fb.pole)));
+  }
+
+  /** DDoS-дрон: корпус, 4 ротора, красные огни (parts: [0..3] роторы, [4] мигающий диод) */
+  private buildDrone(parent: THREE.Group): void {
+    const dark = stdMat(0x1f2937, { rough: 0.4, metal: 0.5 });
+    add(parent, boxG(0.62, 0.18, 0.62), dark, 0, 0, 0);
+    add(parent, boxG(0.64, 0.04, 0.2), stdMat(0xf43f5e, { emissive: 0xf43f5e, ei: 0.8 }), 0, 0.06, 0);
+    add(parent, cachedGeo('ddosPod', () => new THREE.SphereGeometry(0.13, 12, 8)), stdMat(0x111827, { rough: 0.2, metal: 0.6 }), 0, -0.15, 0.12);
+    add(parent, cylG(0.008, 0.008, 0.35, 6), dark, 0.18, 0.25, -0.15);
+    const rotorMat = shared('rotorRed', () => new THREE.MeshBasicMaterial({ color: 0xf87171, transparent: true, opacity: 0.35, depthWrite: false }));
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + (i * Math.PI) / 2;
+      const x = Math.cos(a) * 0.55;
+      const z = Math.sin(a) * 0.55;
+      add(parent, boxG(0.5, 0.05, 0.06), dark, x / 2, 0.02, z / 2, 0, -a, 0);
+      add(parent, cylG(0.05, 0.05, 0.1, 8), dark, x, 0.06, z);
+      const rotor = new THREE.Mesh(cylG(0.26, 0.26, 0.01, 18), rotorMat);
+      rotor.position.set(x, 0.12, z);
+      parent.add(rotor);
+      this.parts.push(add(rotor, boxG(0.5, 0.008, 0.04), stdMat(0x7f1d1d), 0, 0, 0, 0, 0, 0, false));
+    }
+    for (const sx of [-1, 1]) add(parent, boxG(0.05, 0.03, 0.02), stdMat(0xff1f3d, { emissive: 0xff1f3d, ei: 3 }), sx * 0.1, 0.0, 0.32, 0, 0, 0, false);
+    this.parts.push(add(parent, cachedGeo('ddosLed', () => new THREE.SphereGeometry(0.05, 8, 6)), stdMat(0xff1f3d, { emissive: 0xff1f3d, ei: 3 }), 0, 0.12, 0.3, 0, 0, 0, false));
   }
 
   private addRing(color: number, radius: number): void {
@@ -997,18 +1396,23 @@ export class EnemyModel {
   }
 
   /** Баллистический щит Кемпера: тёмный металл, неоновая рамка и V-полосы, смотровая прорезь */
-  private buildRiotShield(): void {
+  /** Баллистический щит: neon — цвет неоновой рамки (null — простой стальной), k — масштаб под рост бойца */
+  private buildRiotShield(neon: number | null, k: number): void {
     const pivot = new THREE.Group();
     this.body.add(pivot);
     this.shieldPivot = pivot;
-    const metal = stdMat(0x1f2933, { rough: 0.35, metal: 0.7 });
-    const neon = stdMat(0x38bdf8, { emissive: 0x38bdf8, ei: 2.2 });
+    this.shieldK = k;
+    pivot.scale.setScalar(k);
+    const metal = stdMat(neon === null ? 0x4b5563 : 0x1f2933, { rough: 0.35, metal: 0.7 });
     const cy = 0.95;
     const fz = 0.056;
     add(pivot, boxG(1.1, 1.4, 0.1), metal, 0, cy, 0);
-    for (const sy of [-1, 1]) add(pivot, boxG(1.1, 0.04, 0.012), neon, 0, cy + sy * 0.68, fz, 0, 0, 0, false);
-    for (const sx of [-1, 1]) add(pivot, boxG(0.04, 1.4, 0.012), neon, sx * 0.53, cy, fz, 0, 0, 0, false);
-    for (const sx of [-1, 1]) add(pivot, boxG(0.04, 0.62, 0.012), neon, sx * 0.12, cy - 0.12, fz, 0, 0, -sx * 0.42, false);
+    if (neon !== null) {
+      const glow = stdMat(neon, { emissive: neon, ei: 2.2 });
+      for (const sy of [-1, 1]) add(pivot, boxG(1.1, 0.04, 0.012), glow, 0, cy + sy * 0.68, fz, 0, 0, 0, false);
+      for (const sx of [-1, 1]) add(pivot, boxG(0.04, 1.4, 0.012), glow, sx * 0.53, cy, fz, 0, 0, 0, false);
+      for (const sx of [-1, 1]) add(pivot, boxG(0.04, 0.62, 0.012), glow, sx * 0.12, cy - 0.12, fz, 0, 0, -sx * 0.42, false);
+    }
     add(pivot, boxG(0.44, 0.1, 0.02), stdMat(0x7dd3fc, { rough: 0.05, metal: 0.3, emissive: 0x0ea5e9, ei: 0.7, opacity: 0.8 }), 0, cy + 0.5, fz, 0, 0, 0, false);
     add(pivot, boxG(0.06, 0.22, 0.06), stdMat(0x111111, { rough: 0.6 }), -0.02, cy + 0.15, -0.08);
     this.updateShieldPivot();
@@ -1018,7 +1422,8 @@ export class EnemyModel {
     const p = this.shieldPivot;
     if (!p) return;
     const k = this.stance;
-    p.position.set(-0.14 + 0.04 * k, -0.18 * k, 0.46 + 0.14 * k);
+    const sk = this.shieldK;
+    p.position.set((-0.14 + 0.04 * k) * sk, -0.18 * k * sk, (0.46 + 0.14 * k) * sk);
     p.rotation.y = 0.12 * (1 - k);
   }
 
@@ -1322,7 +1727,151 @@ export class EnemyModel {
   setShield(frac: number): void {
     if (!this.shieldMesh) return;
     this.shieldMesh.visible = frac > 0.01;
-    (this.shieldMesh.material as THREE.MeshBasicMaterial).opacity = 0.06 + frac * 0.22;
+    (this.shieldMesh.material as THREE.MeshBasicMaterial).opacity = this.shieldOpacity[0] + frac * this.shieldOpacity[1];
+  }
+
+  /** Энергощит-сфера вокруг босса (как у Спинбота) */
+  private addEnergyShield(radius: number, color: number, y: number): void {
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.ownMats.push(mat);
+    const mesh = new THREE.Mesh(cachedGeo(`shieldIco${radius}`, () => new THREE.IcosahedronGeometry(radius, 2)), mat);
+    mesh.position.y = y;
+    mesh.add(
+      new THREE.Mesh(
+        cachedGeo(`shieldIcoW${radius}`, () => new THREE.IcosahedronGeometry(radius * 1.012, 1)),
+        shared(`shieldWire${color}`, () => new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.3, depthWrite: false })),
+      ),
+    );
+    this.root.add(mesh);
+    this.shieldMesh = mesh;
+  }
+
+  /** Кольцо песчаной пыли у ног Джаггернаута (расширяется и ускоряется в бурю) */
+  private buildSandRing(): void {
+    const g = new THREE.Group();
+    g.position.y = 0.2;
+    this.root.add(g);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    this.ownMats.push(mat);
+    this.sandMat = mat;
+    add(g, cachedGeo('sandRing', () => new THREE.RingGeometry(1.0, 1.7, 48, 1)), mat, 0, 0, 0, -Math.PI / 2, 0, 0, false);
+    add(g, torusG(1.35, 0.05), mat, 0, 0.15, 0, Math.PI / 2, 0, 0, false);
+    const clump = stdMat(0xd6a565, { rough: 1 });
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      add(g, sphG(0.07 + (i % 3) * 0.03, 6, 4), clump, Math.cos(a) * (1.2 + (i % 2) * 0.35), 0.1 + (i % 3) * 0.12, Math.sin(a) * (1.2 + (i % 2) * 0.35), 0, 0, 0, false);
+    }
+    this.sandRing = g;
+  }
+
+  /** Ядро Реактора: парящая светящаяся сфера, два стальных кольца, бронещитки, руки, сопла и энергощит */
+  private buildReactorCore(): void {
+    this.gait = 'none';
+    const core = new THREE.Group();
+    core.position.y = 1.6;
+    this.body.add(core);
+    this.rack = core;
+    const glow = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 2.5, roughness: 0.3 });
+    this.ownMats.push(glow);
+    this.coreMat = glow;
+    const steel = stdMat(0x64748b, { rough: 0.3, metal: 0.8 });
+    const dark = stdMat(0x1f2937, { rough: 0.45, metal: 0.6 });
+    add(core, sphG(0.65, 24, 16), glow, 0, 0, 0, 0, 0, 0, false);
+    const ringA = add(core, torusG(0.95, 0.08), steel, 0, 0, 0, Math.PI / 2, 0, 0);
+    const ringB = add(core, torusG(1.15, 0.06), steel, 0, 0, 0, 0, Math.PI / 2, 0);
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + (i * Math.PI) / 2;
+      add(core, boxG(0.62, 1.0, 0.16), dark, Math.cos(a) * 1.02, 0, Math.sin(a) * 1.02, 0, Math.PI / 2 - a, 0);
+      add(core, boxG(0.5, 0.06, 0.17), glow, Math.cos(a) * 1.03, 0.3, Math.sin(a) * 1.03, 0, Math.PI / 2 - a, 0, false);
+    }
+    for (const sx of [-1, 1]) {
+      add(core, sphG(0.22, 12, 8), steel, sx * 1.35, 0.15, 0);
+      add(core, boxG(0.3, 0.6, 0.3), dark, sx * 1.45, -0.3, 0.05);
+      add(core, boxG(0.36, 0.32, 0.38), steel, sx * 1.45, -0.72, 0.1);
+    }
+    const flameMat = shared('thrusterFlame', () => new THREE.MeshBasicMaterial({ color: 0xffa94d, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+    for (const sx of [-1, 1]) {
+      add(core, cylG(0.12, 0.18, 0.25, 12), dark, sx * 0.35, -0.82, 0);
+      const f = new THREE.Mesh(cachedGeo('thrusterCone', () => new THREE.ConeGeometry(0.14, 0.5, 10)), flameMat);
+      f.position.set(sx * 0.35, -1.18, 0);
+      f.rotation.x = Math.PI;
+      core.add(f);
+      this.flames.push(f);
+    }
+    this.parts.push(ringA, ringB);
+    this.addEnergyShield(2.0, 0x38bdf8, 1.6);
+  }
+
+  /** Контейнерный Мех: двуногий, корпус-контейнер с hazard-полосой, гатлинг и фронтальный энергощит */
+  private buildContainerMech(): void {
+    this.gait = 'none';
+    const mech = new THREE.Group();
+    this.body.add(mech);
+    this.rack = mech;
+    const blue = stdMat(0x2563eb, { rough: 0.45, metal: 0.5 });
+    const dark = stdMat(0x1e293b, { rough: 0.4, metal: 0.6 });
+    const hazard = shared('hazardMat', () => new THREE.MeshStandardMaterial({ map: getTexture('hazard'), roughness: 0.6 }));
+    for (const sx of [-1, 1]) {
+      const leg = new THREE.Group();
+      leg.position.set(sx * 0.32, 0.78, 0);
+      add(leg, boxG(0.2, 0.42, 0.24), dark, 0, -0.2, 0);
+      add(leg, sphG(0.1, 8, 6), blue, 0, -0.42, 0.02);
+      add(leg, boxG(0.18, 0.34, 0.22), dark, 0, -0.6, 0.02);
+      add(leg, boxG(0.3, 0.08, 0.42), blue, 0, -0.74, 0.06);
+      this.body.add(leg);
+      this.rigLegs.push(leg);
+    }
+    add(mech, boxG(1.1, 1.3, 1.0), blue, 0, 1.42, 0);
+    for (let i = -4; i <= 4; i++) {
+      for (const sz of [-1, 1]) add(mech, boxG(0.05, 1.2, 0.02), dark, i * 0.12, 1.42, sz * 0.505, 0, 0, 0, false);
+    }
+    add(mech, boxG(1.12, 0.14, 1.02), hazard, 0, 1.0, 0, 0, 0, 0, false);
+    add(mech, boxG(0.3, 0.08, 0.02), stdMat(0xef4444, { emissive: 0xef4444, ei: 2 }), 0, 1.86, 0.515, 0, 0, 0, false);
+    // Левая рука — гатлинг, правая — фронтальный щит
+    add(mech, boxG(0.3, 0.3, 0.4), dark, -0.72, 1.45, 0.1);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      add(mech, cylG(0.035, 0.035, 0.6, 6), dark, -0.72 + Math.cos(a) * 0.07, 1.4 + Math.sin(a) * 0.07, 0.55, Math.PI / 2, 0, 0, false);
+    }
+    add(mech, boxG(0.26, 0.3, 0.36), dark, 0.72, 1.45, 0.05);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    this.ownMats.push(mat);
+    const arc = new THREE.Mesh(cachedGeo('mechShieldArc', () => new THREE.CylinderGeometry(0.9, 0.9, 1.5, 18, 1, true, -0.65, 1.3)), mat);
+    arc.position.set(0.55, 1.35, -0.15);
+    mech.add(arc);
+    this.shieldMesh = arc;
+    this.shieldOpacity = [0.12, 0.45];
+  }
+
+  /** Песчаная буря Джаггернаута */
+  setStorm(on: boolean): void {
+    this.stormOn = on;
+  }
+
+  /** Ярость: Пиромант ниже 50% HP, Подрывник ниже 40% */
+  setRage(on: boolean): void {
+    this.rage = on;
+  }
+
+  /** Вспышка ядра при ЭМИ-импульсе */
+  pulse(): void {
+    this.pulseK = 1;
+  }
+
+  /** Цель плечевых турелей Оверлорда (мировые координаты), null — смотрят вперёд */
+  setTurretTarget(target: THREE.Vector3 | null): void {
+    if (!target) {
+      this.turretAim = null;
+      return;
+    }
+    this.turretAim = (this.turretAim ?? new THREE.Vector3()).copy(target);
+  }
+
+  /** Дуло плечевой турели (для трассеров залпа) */
+  turretWorld(i: number, out: THREE.Vector3): THREE.Vector3 {
+    const m = this.turretMuzzles[i];
+    if (m) return m.getWorldPosition(out);
+    return this.root.getWorldPosition(out).setY(out.y + 3);
   }
 
   /** speedK — текущая скорость относительно базовой (для анимации шага) */
@@ -1364,7 +1913,8 @@ export class EnemyModel {
         this.parts[1].rotation.y = -flap;
         break;
       }
-      case 'ddos': {
+      case 'ddos':
+      case 'ddos_overlord': {
         for (let i = 0; i < 4; i++) this.parts[i].rotation.y += dt * 40;
         this.parts[4].visible = Math.sin(t * 10) > 0;
         this.body.position.y = Math.sin(t * 2.5) * 0.15;
@@ -1480,7 +2030,70 @@ export class EnemyModel {
         this.body.position.y = Math.abs(Math.cos(t * 12 * speedK)) * 0.04;
         break;
       }
+      case 'dune_juggernaut': {
+        this.storm += ((this.stormOn ? 1 : 0) - this.storm) * Math.min(1, dt * 3);
+        if (this.sandRing) {
+          this.sandRing.rotation.y += dt * (1.2 + this.storm * 5);
+          this.sandRing.scale.setScalar(1 + this.storm * 0.9);
+        }
+        if (this.sandMat) this.sandMat.opacity = 0.3 + this.storm * 0.35;
+        break;
+      }
+      case 'alley_pyromancer':
+        for (const f of this.flames) f.scale.set(1, (this.rage ? 1.6 : 1) * (0.75 + Math.random() * 0.5), 1);
+        break;
+      case 'reactor_core': {
+        const [ringA, ringB] = this.parts;
+        this.pulseK = Math.max(0, this.pulseK - dt * 1.6);
+        ringA.rotation.y += dt * (1.4 + this.pulseK * 6);
+        ringB.rotation.x += dt * (1.9 + this.pulseK * 6);
+        if (this.rack) {
+          this.rack.position.y = 1.6 + Math.sin(t * 1.6) * 0.12;
+          this.rack.rotation.y += dt * 0.3;
+        }
+        if (this.coreMat) this.coreMat.emissiveIntensity = 2.5 + this.pulseK * 4 + Math.sin(t * 6) * 0.3;
+        for (const f of this.flames) f.scale.set(1, 0.7 + Math.random() * 0.6, 1);
+        if (this.shieldMesh) this.shieldMesh.rotation.y += dt * 0.5;
+        break;
+      }
+      case 'overpass_overlord': {
+        // Турели плавно поворачиваются к цели
+        for (const tur of this.turrets) {
+          let yaw = 0;
+          if (this.turretAim && tur.parent) {
+            const local = tur.parent.worldToLocal(TMP_A.copy(this.turretAim)).sub(tur.position);
+            yaw = Math.atan2(local.x, local.z);
+          }
+          tur.rotation.y += (yaw - tur.rotation.y) * Math.min(1, dt * 6);
+        }
+        if (this.shieldMesh) this.shieldMesh.rotation.y += dt * 0.4;
+        break;
+      }
+      case 'carpet_ninja':
+        if (this.cape) this.cape.rotation.x = 0.12 + Math.abs(Math.sin(t * 9 * speedK)) * 0.25 * Math.min(1, speedK);
+        break;
+      case 'flash_maestro':
+        if (this.orbit) {
+          this.orbit.rotation.y += dt * 2.6;
+          for (const c of this.orbit.children) c.rotation.x += dt * 5;
+        }
+        break;
+      case 'yard_sapper':
+        for (const b of this.blink) b.visible = Math.sin(t * (this.rage ? 26 : 8)) > 0;
+        break;
+      case 'container_mech': {
+        const sw = Math.sin(t * 5 * speedK) * 0.4 * Math.min(1, speedK);
+        this.rigLegs.forEach((leg, i) => {
+          leg.rotation.x = i === 0 ? sw : -sw;
+        });
+        if (this.rack) this.rack.position.y = Math.abs(Math.sin(t * 5 * speedK)) * 0.05;
+        break;
+      }
+      case 'hill_jammer':
+        if (this.parts[0]) this.parts[0].rotation.z += dt * 4;
+        break;
       case 'onetap':
+      case 'long_awper':
         this.applyHold(this.stance);
         if (this.laserMat) this.laserMat.opacity = 0.55 + Math.random() * 0.35;
         break;

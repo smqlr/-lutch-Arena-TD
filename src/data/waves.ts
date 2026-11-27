@@ -1,4 +1,5 @@
-import type { EnemyKind, Loc, MapDef, WaveDef, WaveGroup, WaveTag } from '../types/game';
+import type { EnemyKind, Loc, MapDef, MapId, WaveDef, WaveGroup, WaveTag } from '../types/game';
+import { ENEMIES } from './enemies';
 import { DIFFICULTIES, diffCount, diffHp } from './difficulty';
 import type { DifficultyDef } from './difficulty';
 
@@ -22,7 +23,38 @@ export const WAVE_NAMES: Record<WaveTag, Loc> = {
   content: { ru: 'Стрим-снайп', en: 'Stream snipe' },
   chaos: { ru: 'Тролли и квит', en: 'Trolls & quits' },
   servers: { ru: 'Бот-ферма', en: 'Bot farm' },
+  miniboss: { ru: 'Мини-босс', en: 'Mini-boss' },
 };
+
+/** Финальный босс каждой карты (промежуточные боссы каждые 5 волн — Спинбот) */
+export const MAP_BOSS: Record<MapId, EnemyKind> = {
+  bazaar: 'spinbot',
+  dune: 'dune_juggernaut',
+  quarter: 'alley_pyromancer',
+  reactor: 'reactor_core',
+  interchange: 'overpass_overlord',
+};
+
+/** Мини-боссы карты по номерам волн (подмешиваются к волне по одному) */
+export const MINI_BOSS_WAVES: Record<MapId, [number, EnemyKind][]> = {
+  bazaar: [[5, 'carpet_ninja'], [9, 'market_baron']],
+  dune: [[5, 'short_breacher'], [10, 'long_awper']],
+  quarter: [[5, 'flash_maestro'], [9, 'fountain_tank'], [12, 'yard_sapper']],
+  reactor: [[5, 'vent_phantom'], [9, 'container_mech'], [13, 'ddos_overlord']],
+  interchange: [[5, 'canal_amphibian'], [10, 'bridge_rammer'], [14, 'hill_jammer']],
+};
+
+/** Мини-босс волны: по расписанию карты, а в доп. волнах сложности — каждые 4 волны по кругу */
+function miniBossFor(n: number, map: MapDef): EnemyKind | null {
+  const list = MINI_BOSS_WAVES[map.id];
+  const fixed = list.find(([w]) => w === n);
+  if (fixed) return fixed[1];
+  const over = n - map.waves;
+  if (over > 0 && over % 4 === 2) return list[Math.floor(over / 4) % list.length][1];
+  return null;
+}
+
+const isBossKind = (k: EnemyKind) => !!ENEMIES[k].boss || !!ENEMIES[k].miniBoss;
 
 const g = (kind: EnemyKind, count: number, interval: number, delay = 0): WaveGroup => ({ kind, count, interval, delay });
 
@@ -91,6 +123,9 @@ function baseGroups(tag: WaveTag): WaveGroup[] {
       return [g('troll', 3, 2.6), g('ragequitter', 4, 1.8, 2)];
     case 'servers':
       return [g('botfarm', 2, 5.0), g('onetap', 2, 3.5, 3)];
+    case 'miniboss':
+      // Имя волны, а не отдельный пресет: мини-босс подмешивается к волне в buildWave
+      return [g('eco', 8, 0.9), g('armored', 2, 1.8, 4)];
   }
 }
 
@@ -152,7 +187,7 @@ export function buildWave(n: number, map: MapDef, diff: DifficultyDef = DIFFICUL
   const intervalMul = 1 / (1 + (late + over * 0.5) * 0.05);
   const scale = (gr: WaveGroup, k = 1, minCount = 1): WaveGroup => ({
     ...gr,
-    count: gr.kind === 'spinbot' ? gr.count : Math.max(minCount, Math.round(gr.count * k * countMul)),
+    count: isBossKind(gr.kind) ? gr.count : Math.max(minCount, Math.round(gr.count * k * countMul)),
     interval: gr.interval * intervalMul,
   });
 
@@ -173,19 +208,41 @@ export function buildWave(n: number, map: MapDef, diff: DifficultyDef = DIFFICUL
     }
   }
 
-  // Эскорт финального босса
+  // Финальная волна: вместо Спинбота — босс карты
+  if (boss && n === total) {
+    const mapBoss = MAP_BOSS[map.id];
+    groups = groups.map((gr) => (gr.kind === 'spinbot' ? { ...gr, kind: mapBoss } : gr));
+  }
+
+  // Эскорт финального босса (второй Спинбот на Реакторе и Развязке больше не нужен: свой босс сильнее)
   if (boss && n === total && n > 10) {
     groups.push(g('screamer', 2, 4, 10), g('ddos', 3, 2.5, 12), g('smoker', 2, 4, 14));
     if (map.difficulty >= 3) groups.push(g('afk', 2, 3, 1), g('flasher', 2, 2.4, 8));
-    if (map.difficulty >= 4) groups.push(g('cheater', 2, 2.2, 14), g('toxic', 2, 2.2, 16), g('spinbot', 1, 1, 26));
+    if (map.difficulty >= 4) groups.push(g('cheater', 2, 2.2, 14), g('toxic', 2, 2.2, 16));
     if (map.difficulty >= 3) groups.push(g('streamer', 1, 1, 6), g('camper', 2, 2.4, 2));
     if (map.difficulty >= 4) groups.push(g('botfarm', 1, 1, 10), g('onetap', 2, 3.5, 12));
+  }
+
+  // Финальная волна называется по боссу карты, мини-босс карты — один к эскорту волны («Мини-босс: …»)
+  let name = WAVE_NAMES[tag];
+  if (boss && n === total && MAP_BOSS[map.id] !== 'spinbot') {
+    const bn = ENEMIES[MAP_BOSS[map.id]].name;
+    name = { ru: `Босс: ${bn.ru}`, en: `Boss: ${bn.en}` };
+  }
+  const mini = miniBossFor(n, map);
+  if (mini) {
+    groups.push(g(mini, 1, 1, 6));
+    if (!boss) {
+      tag = 'miniboss';
+      const mn = ENEMIES[mini].name;
+      name = { ru: `${WAVE_NAMES.miniboss.ru}: ${mn.ru}`, en: `${WAVE_NAMES.miniboss.en}: ${mn.en}` };
+    }
   }
 
   return {
     number: n,
     tag,
-    name: WAVE_NAMES[tag],
+    name,
     groups,
     boss,
     hpMul: waveHpMul(n, map) * diffHp(diff, map.difficulty),

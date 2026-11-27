@@ -82,6 +82,79 @@ const ONETAP_RANGE = 14;
 const ONETAP_AIM = 0.8;
 const ONETAP_DISABLE = 3;
 
+/* ------------------------------ Боссы и мини-боссы ------------------------------ */
+/** Боссы растут по волнам мягче обычных врагов */
+const BOSS_HP_GROWTH = 0.65;
+/** Доля длительности флешки: боссы и АФК-зомби / мини-боссы */
+const BOSS_FLASH = 0.3;
+const MINIBOSS_FLASH = 0.5;
+/** Мини-боссы вместо мгновенного убийства (хедшот, казнь) получают ×2.5 урона */
+const MINIBOSS_EXEC_MUL = 2.5;
+/** Песчаный Джаггернаут: буря каждые 6 с на 3 с, дальность башен ×0.7 */
+const SANDSTORM_EVERY = 6;
+const SANDSTORM_TIME = 3;
+const SANDSTORM_RANGE = 0.7;
+/** Пиромант: 2 зажигательные гранаты в ближайшие башни, огненный след ниже 50% HP */
+const PYRO_THROW_EVERY = 5;
+const PYRO_THROW_RANGE = 10;
+const PYRO_BURN = 2;
+const PYRO_RAGE_SPEED = 1.2;
+const PYRO_TRAIL_EVERY = 1;
+const PYRO_TRAIL_LIFE = 3;
+const PYRO_TRAIL_RADIUS = 1.1;
+const PYRO_TRAIL_SPEED = 1.3;
+/** Ядро Реактора: ЭМИ (темп стрельбы ×0.6) и смурфы из вентиляции на 65% и 30% HP */
+const EMP_EVERY = 5;
+const EMP_RADIUS = 8;
+const EMP_TIME = 2.5;
+const EMP_RATE = 0.6;
+const CORE_THRESHOLDS = [0.65, 0.3];
+const CORE_ADDS = 4;
+/** Оверлорд: десант в канал и залп по бойцам на высотах i12/i13 */
+const OVERLORD_DROP_DIST = 18;
+const OVERLORD_DISABLE = 3;
+const OVERLORD_TURRET_RANGE = 16;
+/** Мини-боссы */
+const NINJA_SMOKE_EVERY = 4;
+const NINJA_SMOKE_RADIUS = 2.6;
+const NINJA_SMOKE_TIME = 3;
+const BARON_RADIUS = 5;
+const BARON_CUT = 0.5;
+const BREACHER_RADIUS = 4.5;
+const BREACHER_BOOST = 1.25;
+const MAESTRO_EVERY = 4;
+const MAESTRO_BLIND = 1.5;
+const MAESTRO_RANGE = 9;
+const SAPPER_RAGE_HP = 0.4;
+const SAPPER_RAGE_SPEED = 1.5;
+const SAPPER_BLAST_RADIUS = 4;
+const SAPPER_BLAST_TIME = 1.5;
+const PHANTOM_DODGE = 0.3;
+const MECH_REGEN = 0.12;
+const MECH_REGEN_DELAY = 2.5;
+const DDOS_LORD_EVERY = 3;
+const DDOS_LORD_LAG = 1.8;
+const DDOS_LORD_RANGE = 8;
+const DDOS_LORD_AURA = 5;
+const DDOS_LORD_BOOST = 1.15;
+const AMPHIBIAN_WATER_SPEED = 1.35;
+const RAMMER_EVERY = 3;
+const JAMMER_HEIGHT = 2;
+const JAMMER_RANGE = 6;
+/** Башня «на слоте» из ТЗ — в этом радиусе от именованной точки карты (установка свободная) */
+const SPOT_RADIUS = 4;
+
+/** Враги-снайперы: перезарядка, дальность, прицеливание, отключение башни, приоритетные точки карты */
+interface SniperParams {
+  cooldown: number;
+  range: number;
+  aim: number;
+  disable: number;
+  spots?: string[];
+  /** Дальность до башен на приоритетных точках (Снайпер Длины простреливает карту до d9/d10) */
+  spotRange?: number;
+}
+
 /** Высота точки попадания над землёй (по умолчанию 1.2) */
 const HIT_HEIGHT: Partial<Record<EnemyKind, number>> = {
   spinbot: 2.0,
@@ -91,10 +164,26 @@ const HIT_HEIGHT: Partial<Record<EnemyKind, number>> = {
   boosted_ally: 0.9,
   loot_crate: 0.5,
   mini_bot: 0.6,
+  dune_juggernaut: 2.3,
+  alley_pyromancer: 2.2,
+  reactor_core: 1.75,
+  overpass_overlord: 2.4,
+  carpet_ninja: 1.45,
+  market_baron: 1.5,
+  long_awper: 1.45,
+  short_breacher: 1.55,
+  flash_maestro: 1.45,
+  fountain_tank: 1.7,
+  yard_sapper: 1.45,
+  vent_phantom: 1.4,
+  container_mech: 1.4,
+  canal_amphibian: 1.5,
+  bridge_rammer: 1.7,
+  hill_jammer: 1.45,
 };
 
 /** Почему башня не стреляет: лаг (DDoS), огонь (молотов Тролля), выстрел Вантап-снайпера */
-export type DisableKind = 'lag' | 'fire' | 'shot';
+export type DisableKind = 'lag' | 'fire' | 'shot' | 'blast';
 
 interface DamageOpts {
   /** Сплеш, шрапнель, HE-граната — проходят мимо щита Кемпера */
@@ -102,6 +191,11 @@ interface DamageOpts {
   /** Огонь молотова — проходит мимо щита Кемпера */
   fire?: boolean;
 }
+const ENEMY_SNIPERS: Partial<Record<EnemyKind, SniperParams>> = {
+  onetap: { cooldown: ONETAP_COOLDOWN, range: ONETAP_RANGE, aim: ONETAP_AIM, disable: ONETAP_DISABLE },
+  long_awper: { cooldown: 5, range: 15, aim: 0.7, disable: 2.5, spots: ['d9', 'd10'], spotRange: 30 },
+};
+
 const SPLASH: DamageOpts = { splash: true };
 const FIRE: DamageOpts = { fire: true };
 
@@ -132,6 +226,8 @@ export class Tower {
   streakTimer = 0;
   utilTimer = 1.5;
   lagTimer = 0;
+  /** ЭМИ Ядра Реактора: темп стрельбы ×0.6 */
+  empTimer = 0;
   /** Чем вызвано отключение по lagTimer (для бейджа) */
   disabledBy: DisableKind = 'lag';
   /** Ослеплён флешкой Флешера */
@@ -197,6 +293,12 @@ export class Enemy {
   shieldActive = false;
   shieldTimer = 0;
   readonly shieldDir = new THREE.Vector2(0, 1);
+  /** Пройденные пороги HP босса (подкрепления, восстановление щита) */
+  bossPhase = 0;
+  /** Огненный след Пироманта */
+  trailTimer = 0;
+  /** Амфибия в воде канала: быстрее и не горит */
+  wet = false;
   /** Рейдж-квиттер: «вне игры» (невидим, неуязвим, не цель), способность одноразовая */
   vanishTimer = 0;
   rageUsed = false;
@@ -221,7 +323,7 @@ export class Enemy {
     this.maxHp = this.hp = def.hp * hpMul;
     this.maxShield = this.shield = def.shield * hpMul;
     this.speed = def.speed * speedMul;
-    this.lane = def.flying || def.kind === 'spinbot' ? 0 : (Math.random() - 0.5) * 0.9;
+    this.lane = def.flying || def.boss ? 0 : (Math.random() - 0.5) * (def.miniBoss ? 0.5 : 0.9);
     switch (def.kind) {
       case 'camper':
         this.special = 3 + Math.random() * 2;
@@ -233,7 +335,19 @@ export class Enemy {
         this.special = BOTFARM_COOLDOWN;
         break;
       case 'onetap':
+      case 'long_awper':
+      case 'carpet_ninja':
+      case 'flash_maestro':
         this.special = 2 + Math.random() * 2;
+        break;
+      case 'dune_juggernaut':
+      case 'alley_pyromancer':
+      case 'reactor_core':
+      case 'bridge_rammer':
+        this.special = 3;
+        break;
+      case 'ddos_overlord':
+        this.special = 1.5;
         break;
       default:
         this.special = 1 + Math.random() * 2;
@@ -265,6 +379,14 @@ interface EnemyThrow {
   t: number;
   dur: number;
   tower: Tower;
+  /** Сколько секунд башня горит и не стреляет */
+  burn: number;
+}
+
+/** Огненный след Пироманта: ускоряет врагов, идущих по нему */
+interface FireTrail {
+  pos: THREE.Vector3;
+  life: number;
 }
 
 interface FireDmg {
@@ -329,6 +451,10 @@ export class Game {
   private fires: FireDmg[] = [];
   private slowZones: SlowZone[] = [];
   private throws: ThrowFx[] = [];
+  /** Песчаная буря Джаггернаута: дальность всех башен ×0.7 */
+  sandstormTimer = 0;
+  private stormToast = false;
+  private fireTrails: FireTrail[] = [];
   /** Броски врагов по башням (отдельно от утилит Support) */
   private enemyThrows: EnemyThrow[] = [];
   private raycaster = new THREE.Raycaster();
@@ -466,7 +592,8 @@ export class Game {
     if (w.boss) {
       this.sound.boss();
       this.sound.bossDrone(true);
-      this.cb.toast(t('bossIncoming'), 'bad');
+      const bossKind = w.groups.map((gr) => gr.kind).find((k) => ENEMIES[k].boss) ?? 'spinbot';
+      this.cb.toast(t('bossIncoming', { name: loc(ENEMIES[bossKind].name) }), 'bad');
     } else {
       this.cb.toast(`${t('wave')} ${w.number}: ${loc(w.name)}`, 'info');
     }
@@ -753,6 +880,11 @@ export class Game {
 
   private step(dt: number): void {
     this.time += dt;
+    if (this.sandstormTimer > 0) {
+      this.sandstormTimer = Math.max(0, this.sandstormTimer - dt);
+      this.sandFx(dt);
+    }
+    if (this.fireTrails.length) this.fireTrails = this.fireTrails.filter((f) => (f.life -= dt) > 0);
 
     if (this.phase === 'prep' && this.autoWave && this.waveIndex < this.waves.length) {
       this.autoTimer -= dt;
@@ -788,6 +920,12 @@ export class Game {
 
   private spawn(kind: EnemyKind): void {
     const def = ENEMIES[kind];
+    // Привязка к маршруту карты (мини-боссы, Оверлорд на мосту)
+    const forced = def.forcedRoute ? this.routes.find((r) => r.def.id === def.forcedRoute) : undefined;
+    if (forced) {
+      this.spawnAt(kind, forced, 0);
+      return;
+    }
     const cands = this.routes.filter((r) => !r.def.fastOnly || def.fast);
     let total = 0;
     for (const r of cands) total += r.def.weight;
@@ -809,7 +947,7 @@ export class Game {
     let hpMul = w ? w.hpMul : 1;
     // Босс растёт по волнам мягче обычных врагов: позиции делятся между маршрутами,
     // и в каждой точке его достают лишь 1–3 бойца
-    if (kind === 'spinbot') hpMul = 1 + (hpMul - 1) * 0.65;
+    if (ENEMIES[kind].boss) hpMul = 1 + (hpMul - 1) * BOSS_HP_GROWTH;
     const speedMul = (1 + 0.012 * Math.max(0, this.waveIndex - 1)) * this.diff.speed;
     const e = new Enemy(ENEMIES[kind], route, hpMul, speedMul);
     e.dist = THREE.MathUtils.clamp(dist, 0, route.length - 0.5);
@@ -828,13 +966,15 @@ export class Game {
     if (e.def.flying) e.pos.y += 3.4;
     e.model.root.position.copy(e.pos);
     const want = e.faceYaw ?? Math.atan2(dir.x, dir.z);
-    e.yaw = dt > 0 && (e.def.kind === 'camper' || e.def.kind === 'onetap') ? lerpAngle(e.yaw, want, Math.min(1, dt * 10)) : want;
+    e.yaw = dt > 0 && (e.def.kind === 'camper' || !!ENEMY_SNIPERS[e.def.kind]) ? lerpAngle(e.yaw, want, Math.min(1, dt * 10)) : want;
     e.model.body.rotation.y = e.yaw;
     e.progress = e.dist / e.route.length;
   }
 
   private updateEnemies(dt: number): void {
     const screamers = this.enemies.filter((e) => e.alive && e.def.kind === 'screamer');
+    const ddosLords = this.enemies.filter((e) => e.alive && e.def.kind === 'ddos_overlord');
+    const breachers = this.enemies.filter((e) => e.alive && e.def.kind === 'short_breacher');
     // Стримеры лечат, пока живы и не оглушены
     const streamers = this.enemies.filter((e) => e.alive && e.def.kind === 'streamer' && e.stun <= 0);
     for (const e of this.enemies) {
@@ -863,6 +1003,27 @@ export class Game {
         if (s !== e && hdist2(s.pos, e.pos) < 3.2 * 3.2) {
           mul *= 1.35;
           break;
+        }
+      }
+      // Командир DDoS: +15% наземным врагам рядом; Штурмовик: +25% тем, кто идёт за ним; огненный след Пироманта: +30%
+      if (!e.def.flying) {
+        for (const d of ddosLords) {
+          if (hdist2(d.pos, e.pos) < DDOS_LORD_AURA * DDOS_LORD_AURA) {
+            mul *= DDOS_LORD_BOOST;
+            break;
+          }
+        }
+        for (const b of breachers) {
+          if (b !== e && e.progress < b.progress && hdist2(b.pos, e.pos) < BREACHER_RADIUS * BREACHER_RADIUS) {
+            mul *= BREACHER_BOOST;
+            break;
+          }
+        }
+        for (const f of this.fireTrails) {
+          if (hdist2(f.pos, e.pos) < PYRO_TRAIL_RADIUS * PYRO_TRAIL_RADIUS) {
+            mul *= PYRO_TRAIL_SPEED;
+            break;
+          }
         }
       }
       if (streamers.length) this.streamerHeal(e, streamers, dt);
@@ -907,7 +1068,6 @@ export class Game {
         case 'spinbot':
           // Щит восстанавливается, только если босс 4 с не получал урона
           if (this.time - e.lastHit > 4 && e.shield < e.maxShield) e.shield = Math.min(e.maxShield, e.shield + e.maxShield * 0.06 * dt);
-          e.model.setShield(e.maxShield > 0 ? e.shield / e.maxShield : 0);
           break;
         case 'lagger':
           // Откат: 0.25 с неуязвимости, сброс прицела башен, шаг назад — затем рывок вперёд
@@ -975,32 +1135,146 @@ export class Game {
           }
           break;
         case 'onetap':
-          if (e.aimTarget) {
-            const tw = e.aimTarget;
-            // Флешка сбивает прицел; проданная башня — тоже
-            if (e.stun > 0 || !this.towers.has(tw.id)) this.cancelAim(e);
-            else {
-              e.aimTimer -= dt;
-              e.faceYaw = Math.atan2(tw.pos.x - e.pos.x, tw.pos.z - e.pos.z);
-              mul = 0;
-              if (e.aimTimer <= 0) this.snipe(e, tw);
+        case 'long_awper':
+          if (this.updateSniper(e, dt)) mul = 0;
+          break;
+        /* --------------------------- Финальные боссы --------------------------- */
+        case 'dune_juggernaut':
+          if (e.special <= 0 && e.stun <= 0) {
+            e.special = SANDSTORM_EVERY;
+            this.sandstormTimer = Math.max(this.sandstormTimer, SANDSTORM_TIME);
+            e.model.setStorm(true);
+            this.scene.shockwave(e.pos, 6, 0xf59e0b, 0.8);
+            this.sound.storm();
+            if (!this.stormToast) {
+              this.stormToast = true;
+              this.cb.toast(t('sandstorm'), 'bad');
             }
-          } else if (e.stun > 0) e.special += dt;
-          else if (e.special <= 0) {
-            const tw = this.snipeTarget(e);
+          }
+          if (this.sandstormTimer <= 0) e.model.setStorm(false);
+          break;
+        case 'alley_pyromancer': {
+          if (e.special <= 0 && e.stun <= 0) {
+            const near = this.nearestTowers(e.pos, PYRO_THROW_RANGE, 2);
+            if (near.length) {
+              e.special = PYRO_THROW_EVERY;
+              for (const tw of near) this.throwMolotov(e, tw, PYRO_BURN, 3.2);
+            } else e.special = 0.5;
+          }
+          const rage = e.hp < e.maxHp * 0.5;
+          e.model.setRage(rage);
+          if (rage) {
+            mul *= PYRO_RAGE_SPEED;
+            e.trailTimer -= dt;
+            if (e.trailTimer <= 0) {
+              e.trailTimer = PYRO_TRAIL_EVERY;
+              const p = e.route.sample(e.dist, new THREE.Vector3());
+              this.fireTrails.push({ pos: p, life: PYRO_TRAIL_LIFE });
+              this.scene.addFire(p.clone(), PYRO_TRAIL_RADIUS, PYRO_TRAIL_LIFE);
+            }
+          }
+          // Искры из сопла огнемёта
+          e.fxTimer -= dt;
+          if (e.fxTimer <= 0) {
+            e.fxTimer = 0.12;
+            const m = e.model.muzzleWorld(this.v1);
+            this.scene.particle({ pos: m, vel: new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.6, (Math.random() - 0.5) * 0.8), life: 0.35, size0: 0.4, size1: 0.05, color: 0xffb347, color1: 0xb02000 });
+          }
+          break;
+        }
+        case 'reactor_core':
+          if (e.special <= 0 && e.stun <= 0) {
+            e.special = EMP_EVERY;
+            for (const tw of this.towers.values()) {
+              if (hdist2(tw.pos, e.pos) < EMP_RADIUS * EMP_RADIUS) tw.empTimer = Math.max(tw.empTimer, EMP_TIME);
+            }
+            this.scene.shockwave(this.v1.copy(e.pos).setY(e.pos.y + 0.3), EMP_RADIUS, 0x38bdf8, 0.7);
+            e.model.pulse();
+            this.sound.emp();
+          }
+          // Подкрепление из вентиляции на 65% и 30% HP
+          while (e.bossPhase < CORE_THRESHOLDS.length && e.hp < e.maxHp * CORE_THRESHOLDS[e.bossPhase]) {
+            e.bossPhase++;
+            this.ventDrop(e);
+          }
+          break;
+        case 'overpass_overlord': {
+          if (e.bossPhase === 0 && e.hp < e.maxHp * 0.5) {
+            e.bossPhase = 1;
+            this.overlordPhase(e);
+          }
+          const near = this.nearestTowers(e.pos, OVERLORD_TURRET_RANGE, 1)[0];
+          e.model.setTurretTarget(near ? this.towerAimPoint(near, this.v2) : null);
+          break;
+        }
+        /* ------------------------------ Мини-боссы ------------------------------ */
+        case 'carpet_ninja':
+          if (e.special <= 0) {
+            e.special = NINJA_SMOKE_EVERY;
+            this.smokes.push(this.scene.addSmoke(e.route.sample(e.dist, new THREE.Vector3()), NINJA_SMOKE_RADIUS, NINJA_SMOKE_TIME));
+          }
+          break;
+        case 'flash_maestro':
+          if (e.special <= 0 && e.stun <= 0) {
+            e.special = MAESTRO_EVERY;
+            this.maestroFlash(e);
+          }
+          break;
+        case 'yard_sapper':
+          if (e.hp < e.maxHp * SAPPER_RAGE_HP) {
+            mul *= SAPPER_RAGE_SPEED;
+            e.model.setRage(true);
+          }
+          break;
+        case 'vent_phantom':
+          e.fxTimer -= dt;
+          if (e.fxTimer <= 0) {
+            e.fxTimer = 0.07;
+            this.scene.particle({ pos: e.hitPoint(this.v1), vel: new THREE.Vector3(0, 0.3, 0), life: 0.45, size0: 0.32, size1: 0.04, color: 0x67e8f9, color1: 0x0e7490 });
+          }
+          break;
+        case 'container_mech':
+          // Щит восстанавливается, если по меху не стреляли 2.5 с
+          if (this.time - e.lastHit > MECH_REGEN_DELAY && e.shield < e.maxShield) e.shield = Math.min(e.maxShield, e.shield + e.maxShield * MECH_REGEN * dt);
+          break;
+        case 'ddos_overlord':
+          if (e.special <= 0) {
+            const tw = this.nearestTowers(e.pos, DDOS_LORD_RANGE, 1)[0];
             if (tw) {
-              e.special = ONETAP_COOLDOWN;
-              e.aimTarget = tw;
-              e.aimTimer = ONETAP_AIM;
-              e.faceYaw = Math.atan2(tw.pos.x - e.pos.x, tw.pos.z - e.pos.z);
-              e.model.setStance(true);
-              mul = 0;
-            } else e.special = 0.4;
+              e.special = DDOS_LORD_EVERY;
+              this.disableTower(tw, DDOS_LORD_LAG, 'lag');
+              this.scene.tracer(e.pos, this.towerAimPoint(tw, this.v2), 0xff2d55, 0.1, 0.3);
+              this.sound.lag();
+            } else e.special = 0.3;
+          }
+          break;
+        case 'canal_amphibian':
+          e.wet = e.route.surfaceAt(e.dist) === 'water';
+          if (e.wet) {
+            mul *= AMPHIBIAN_WATER_SPEED;
+            if (Math.random() < dt * 10) {
+              this.scene.particle({ pos: e.pos, vel: new THREE.Vector3((Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2), life: 0.4, size0: 0.25, size1: 0.05, color: 0xbae6fd, color1: 0x0ea5e9 });
+            }
+          }
+          break;
+        case 'bridge_rammer':
+          if (e.special <= 0) {
+            e.special = RAMMER_EVERY;
+            let reset = false;
+            for (const tw of this.towers.values()) {
+              if (tw.lastTarget === e && tw.rampStacks > 0) {
+                tw.rampStacks = 0;
+                reset = true;
+              }
+            }
+            if (reset) this.scene.shockwave(e.pos, 1.6, 0x94a3b8, 0.4);
           }
           break;
         default:
           break;
       }
+      // Щиты боссов и Контейнерного Меха
+      if (e.maxShield > 0) e.model.setShield(e.shield / e.maxShield);
       if (e.invuln > 0) {
         e.invuln -= dt;
         if (e.invuln <= 0 && e.lunge) {
@@ -1019,7 +1293,7 @@ export class Game {
       this.placeEnemy(e, dt);
       e.model.update(dt, mul, e.stun > 0, this.scene.camera);
       if (e.aimTarget) e.model.setLaser(e.model.muzzleWorld(this.v1), this.towerAimPoint(e.aimTarget, this.v2));
-      const showBar = e.def.kind === 'spinbot' || e.hp < e.maxHp - 0.01;
+      const showBar = !!e.def.boss || !!e.def.miniBoss || e.hp < e.maxHp - 0.01;
       e.model.hp.group.visible = showBar;
       if (showBar) e.model.hp.set(e.hp / e.maxHp, e.maxShield > 0 ? e.shield / e.maxShield : 0);
     }
@@ -1049,7 +1323,7 @@ export class Game {
   /** Аура Стримера: лечение не складывается, босс и кейсы не лечатся */
   private streamerHeal(e: Enemy, streamers: Enemy[], dt: number): void {
     const k = e.def.kind;
-    if (k === 'streamer' || k === 'loot_crate' || k === 'spinbot' || e.hp >= e.maxHp) return;
+    if (k === 'streamer' || k === 'loot_crate' || e.def.boss || e.hp >= e.maxHp) return;
     for (const s of streamers) {
       if (hdist2(s.pos, e.pos) > STREAMER_RADIUS * STREAMER_RADIUS) continue;
       e.hp = Math.min(e.maxHp, e.hp + e.maxHp * STREAMER_HEAL * dt);
@@ -1150,14 +1424,14 @@ export class Game {
     }
   }
 
-  private throwMolotov(e: Enemy, tw: Tower): void {
+  private throwMolotov(e: Enemy, tw: Tower, burn = TROLL_BURN, fromY = 2.0): void {
     e.model.playThrow();
-    const from = e.pos.clone().setY(e.pos.y + 2.0);
+    const from = e.pos.clone().setY(e.pos.y + fromY);
     const to = tw.pos.clone().setY(tw.pos.y + 0.1);
     const obj = buildThrowable('molotov');
     obj.position.copy(from);
     this.root.add(obj);
-    this.enemyThrows.push({ obj, from, to, t: 0, dur: 0.55 + Math.sqrt(hdist2(from, to)) * 0.03, tower: tw });
+    this.enemyThrows.push({ obj, from, to, t: 0, dur: 0.55 + Math.sqrt(hdist2(from, to)) * 0.03, tower: tw, burn });
   }
 
   private updateEnemyThrows(dt: number): void {
@@ -1175,20 +1449,62 @@ export class Game {
       th.obj.removeFromParent();
       const tw = th.tower;
       const alive = this.towers.has(tw.id);
-      this.scene.addFire((alive ? tw.pos : th.to).clone(), 1.2, TROLL_BURN);
+      this.scene.addFire((alive ? tw.pos : th.to).clone(), 1.2, th.burn);
       this.sound.molotov();
-      if (alive) this.disableTower(tw, TROLL_BURN, 'fire');
+      if (alive) this.disableTower(tw, th.burn, 'fire');
     }
     this.enemyThrows = this.enemyThrows.filter((th) => th.t < 1);
   }
 
-  /** Цель Вантап-снайпера: AWP-позиции, иначе самая дальнобойная башня; уже отключённые — в последнюю очередь */
-  private snipeTarget(e: Enemy): Tower | null {
+  /**
+   * Вантап и Снайпер Длины: прицеливание с лазером, затем выстрел отключает башню.
+   * true — снайпер стоит на месте (целится). Флешка и продажа башни сбивают прицел.
+   */
+  private updateSniper(e: Enemy, dt: number): boolean {
+    const p = ENEMY_SNIPERS[e.def.kind];
+    if (!p) return false;
+    if (e.aimTarget) {
+      const tw = e.aimTarget;
+      if (e.stun > 0 || !this.towers.has(tw.id)) {
+        this.cancelAim(e);
+        return false;
+      }
+      e.aimTimer -= dt;
+      e.faceYaw = Math.atan2(tw.pos.x - e.pos.x, tw.pos.z - e.pos.z);
+      if (e.aimTimer <= 0) this.snipe(e, tw, p.disable);
+      return true;
+    }
+    if (e.stun > 0) {
+      e.special += dt;
+      return false;
+    }
+    if (e.special > 0) return false;
+    const tw = this.snipeTarget(e, p);
+    if (!tw) {
+      e.special = 0.4;
+      return false;
+    }
+    e.special = p.cooldown;
+    e.aimTarget = tw;
+    e.aimTimer = p.aim;
+    e.faceYaw = Math.atan2(tw.pos.x - e.pos.x, tw.pos.z - e.pos.z);
+    e.model.setStance(true);
+    return true;
+  }
+
+  /**
+   * Цель снайпера: приоритетные точки карты (Снайпер Длины — d9, d10), затем AWP-позиции,
+   * затем самая дальнобойная башня; уже отключённые — в последнюю очередь
+   */
+  private snipeTarget(e: Enemy, p: SniperParams): Tower | null {
     let best: Tower | null = null;
     let bestScore = -Infinity;
+    const spots = p.spots ? this.spotPositions(p.spots) : [];
     for (const tw of this.towers.values()) {
-      if (hdist2(tw.pos, e.pos) > ONETAP_RANGE * ONETAP_RANGE) continue;
-      const score = (tw.def.role === 'awper' ? 1000 : 0) + tw.stats.range - (tw.lagTimer > 0.5 ? 2000 : 0);
+      const onSpot = spots.some((sp) => hdist2(sp, tw.pos) < SPOT_RADIUS * SPOT_RADIUS);
+      const range = onSpot ? (p.spotRange ?? p.range) : p.range;
+      if (hdist2(tw.pos, e.pos) > range * range) continue;
+      const score = (onSpot ? 3000 : 0) + (tw.def.role === 'awper' ? 1000 : 0) + tw.stats.range - (tw.lagTimer > 0.5 ? 2000 : 0);
       if (score > bestScore) {
         bestScore = score;
         best = tw;
@@ -1205,15 +1521,100 @@ export class Game {
     e.model.setLaser(null);
   }
 
-  private snipe(e: Enemy, tw: Tower): void {
+  private snipe(e: Enemy, tw: Tower, disable: number): void {
     const muzzle = e.model.muzzleWorld(this.v1);
     const hit = this.towerAimPoint(tw, this.v2);
     this.scene.tracer(muzzle, hit, 0xff2d2d, 0.1, 0.22);
     this.scene.muzzleFlash(muzzle, 0xff4d4d, 1.4);
     this.scene.sparks(hit, 0xff3b3b, 12, 4);
     this.sound.shot('sniper');
-    this.disableTower(tw, ONETAP_DISABLE, 'shot');
+    this.disableTower(tw, disable, 'shot');
     this.cancelAim(e);
+  }
+
+  /** Координаты именованных точек карты (слотов из ТЗ) */
+  private spotPositions(ids: string[]): THREE.Vector3[] {
+    return this.map.spots.filter((sp) => ids.includes(sp.id)).map((sp) => new THREE.Vector3(...sp.pos));
+  }
+
+  /** До n ближайших башен в радиусе */
+  private nearestTowers(pos: THREE.Vector3, range: number, n: number): Tower[] {
+    return [...this.towers.values()]
+      .map((tw) => ({ tw, d: hdist2(tw.pos, pos) }))
+      .filter((o) => o.d < range * range)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, n)
+      .map((o) => o.tw);
+  }
+
+  /** Золотистый песок над позициями бойцов во время бури */
+  private sandFx(dt: number): void {
+    for (const tw of this.towers.values()) {
+      if (Math.random() > dt * 6) continue;
+      const p = this.v3.set(tw.pos.x + (Math.random() - 0.5) * 3, tw.pos.y + 0.5 + Math.random() * 1.8, tw.pos.z + (Math.random() - 0.5) * 3);
+      this.scene.particle({ pos: p, vel: new THREE.Vector3(2.2 + Math.random(), 0.2, 0.8), life: 0.9, size0: 0.35, size1: 0.12, color: 0xfcd34d, color1: 0xb45309 });
+    }
+  }
+
+  /** Ядро Реактора: смурфы выбегают из вентиляции на уровне босса */
+  private ventDrop(e: Enemy): void {
+    const vent = this.routes.find((r) => r.def.id === 'vent') ?? e.route;
+    const base = vent.length * e.progress;
+    for (let i = 0; i < CORE_ADDS; i++) {
+      const s = this.spawnAt('smurf', vent, base - i * 0.7);
+      this.scene.sparks(s.hitPoint(this.v1), 0x38bdf8, 8, 3);
+    }
+    this.scene.shockwave(e.pos, 3, 0x38bdf8, 0.5);
+    this.sound.lag();
+  }
+
+  /** Оверлорд на 50% HP: щит заново, десант в канал, залп турелей по бойцам на высотах i12/i13 */
+  private overlordPhase(e: Enemy): void {
+    e.shield = e.maxShield;
+    const canal = this.routes.find((r) => r.def.id === 'canal') ?? e.route;
+    const drop: EnemyKind[] = ['armored', 'armored', 'rusher', 'rusher', 'rusher'];
+    drop.forEach((k, i) => {
+      const u = this.spawnAt(k, canal, OVERLORD_DROP_DIST + (i - 2) * 0.6);
+      this.scene.sparks(u.hitPoint(this.v1), 0xef4444, 8, 3);
+    });
+    const spots = this.spotPositions(['i12', 'i13']);
+    let targets = [...this.towers.values()].filter((tw) => spots.some((sp) => hdist2(sp, tw.pos) < SPOT_RADIUS * SPOT_RADIUS));
+    // Никого на этих высотах — турели бьют по двум самым высоким позициям поблизости
+    if (!targets.length) {
+      targets = this.nearestTowers(e.pos, OVERLORD_TURRET_RANGE, 8)
+        .filter((tw) => tw.elevated)
+        .sort((a, b) => b.pos.y - a.pos.y)
+        .slice(0, 2);
+    }
+    targets.forEach((tw, i) => {
+      const from = e.model.turretWorld(i % 2, this.v1);
+      this.scene.tracer(from, this.towerAimPoint(tw, this.v2), 0xff2d2d, 0.12, 0.3);
+      this.scene.sparks(this.v2, 0xff3b3b, 12, 4);
+      this.disableTower(tw, OVERLORD_DISABLE, 'shot');
+    });
+    this.scene.shockwave(e.pos, 4, 0xef4444, 0.6);
+    this.sound.shot('carbine');
+    this.sound.boss();
+    this.cb.toast(t('overlordPhase'), 'bad');
+  }
+
+  /** Маэстро Флешек: поп-флешка вверх, ослепляет 2 позиции (сначала на высотах q2–q4, затем ближайшие) */
+  private maestroFlash(e: Enemy): void {
+    const spots = this.spotPositions(['q2', 'q3', 'q4']);
+    const cands = this.nearestTowers(e.pos, MAESTRO_RANGE, 12);
+    const high = cands.filter((tw) => tw.elevated || spots.some((sp) => hdist2(sp, tw.pos) < SPOT_RADIUS * SPOT_RADIUS));
+    const pick = [...high, ...cands.filter((tw) => !high.includes(tw))].slice(0, 2);
+    for (const tw of pick) tw.blindTimer = Math.max(tw.blindTimer, MAESTRO_BLIND);
+    this.scene.flashBang(this.v1.copy(e.pos).setY(e.pos.y + 2.6), 3);
+    this.sound.flash();
+  }
+
+  /** Рядом живой Базарный Барыга: награда за убийство вдвое меньше */
+  private baronNear(e: Enemy): boolean {
+    for (const o of this.enemies) {
+      if (o !== e && o.alive && o.def.kind === 'market_baron' && hdist2(o.pos, e.pos) < BARON_RADIUS * BARON_RADIUS) return true;
+    }
+    return false;
   }
 
   private enemyReachedBase(e: Enemy): void {
@@ -1295,15 +1696,16 @@ export class Game {
     if (tw.def.passive.kind === 'killStreak') rateB += tw.streak * tw.def.passive.a;
     // Аура Токсика: −25% к темпу стрельбы (несколько Токсиков не складываются)
     tw.toxic = this.toxics.some((e) => hdist2(e.pos, tw.pos) < TOXIC_RADIUS * TOXIC_RADIUS);
-    const rateMul = (1 + rateB) * (tw.toxic ? 0.75 : 1);
+    const rateMul = (1 + rateB) * (tw.toxic ? 0.75 : 1) * (tw.empTimer > 0 ? EMP_RATE : 1);
+    const storm = this.sandstormTimer > 0 ? SANDSTORM_RANGE : 1;
     const s = tw.stats;
     s.damage = base.damage * (1 + dmgB);
     s.fireRate = base.fireRate * rateMul;
-    s.range = base.range * (1 + rangeB);
+    s.range = base.range * (1 + rangeB) * storm;
     s.dps = s.damage * s.fireRate;
     s.dmgBonus = dmgB;
     s.rateBonus = rateMul - 1;
-    s.rangeBonus = rangeB;
+    s.rangeBonus = (1 + rangeB) * storm - 1;
   }
 
   private findTarget(tw: Tower): Enemy | null {
@@ -1316,6 +1718,8 @@ export class Game {
       const d2 = hdist2(e.pos, tw.pos);
       if (d2 > r2) continue;
       if (e.inSmoke && !seesSmoke) continue;
+      // Глушилка Холма: позиции на высоте не видят её издалека
+      if (e.def.kind === 'hill_jammer' && tw.pos.y > JAMMER_HEIGHT && d2 > JAMMER_RANGE * JAMMER_RANGE) continue;
       let score: number;
       switch (tw.priority) {
         case 'first':
@@ -1341,6 +1745,7 @@ export class Game {
 
   private updateTower(tw: Tower, dt: number): void {
     tw.model.update(dt);
+    if (tw.empTimer > 0) tw.empTimer -= dt;
     if (tw.streakTimer > 0) {
       tw.streakTimer -= dt;
       if (tw.streakTimer <= 0) tw.streak = 0;
@@ -1409,7 +1814,7 @@ export class Game {
       case 'headshot':
         if (Math.random() < p.a) {
           crit = true;
-          dmg = target.def.kind === 'spinbot' ? dmg * 3 : 1e9;
+          dmg = target.def.boss ? dmg * 3 : target.def.miniBoss ? dmg * MINIBOSS_EXEC_MUL : 1e9;
         }
         break;
       default:
@@ -1473,9 +1878,9 @@ export class Game {
     }
 
     // Казнь раненых
-    if (p.kind === 'execute' && target.alive && target.def.kind !== 'spinbot' && target.hp / target.maxHp < p.a) {
+    if (p.kind === 'execute' && target.alive && !target.def.boss && target.hp / target.maxHp < p.a) {
       this.scene.sparks(target.hitPoint(this.v3), 0xc084fc, 14, 4);
-      this.damage(target, 1e9, 1, tw);
+      this.damage(target, target.def.miniBoss ? dmg * MINIBOSS_EXEC_MUL : 1e9, 1, tw);
     }
   }
 
@@ -1484,7 +1889,8 @@ export class Game {
    * Сплеш, огонь, HE-гранаты, хедшоты с мгновенным убийством и казнь не уклоняются.
    */
   private dodges(e: Enemy, dmg: number): boolean {
-    return e.def.kind === 'cheater' && dmg < 1e8 && Math.random() < CHEATER_DODGE;
+    const chance = e.def.kind === 'cheater' ? CHEATER_DODGE : e.def.kind === 'vent_phantom' ? PHANTOM_DODGE : 0;
+    return chance > 0 && dmg < 1e8 && Math.random() < chance;
   }
 
   /** Флешка Флешера: ослепляет 1–2 ближайшие башни в радиусе */
@@ -1501,6 +1907,8 @@ export class Game {
 
   private damage(e: Enemy, amount: number, pen: number, tw: Tower | null, opts?: DamageOpts): boolean {
     if (!e.alive || e.invuln > 0 || e.vanishTimer > 0) return false;
+    // Пиромант не горит; Амфибия не горит в воде
+    if (opts?.fire && (e.def.kind === 'alley_pyromancer' || (e.def.kind === 'canal_amphibian' && e.wet))) return false;
     // Щит Кемпера держит прямые выстрелы спереди; сплеш, огонь, мгновенные убийства и выстрелы с фланга проходят
     if (e.shieldActive && tw && amount < 1e8 && !opts?.splash && !opts?.fire && this.shieldBlocks(e, tw)) {
       amount *= 1 - CAMPER_BLOCK;
@@ -1535,6 +1943,8 @@ export class Game {
     const flat = !!e.def.summon || e.bounty !== null;
     let reward = e.bounty ?? e.def.reward;
     if (!flat) reward += Math.floor(this.waveIndex / 3);
+    // Базарный Барыга рядом: враги приносят вдвое меньше
+    if (!flat && e.def.kind !== 'market_baron' && this.baronNear(e)) reward = Math.floor(reward * BARON_CUT);
     if (tw) {
       tw.kills++;
       if (!flat) reward += tw.auraEcon;
@@ -1564,10 +1974,15 @@ export class Game {
         false,
       );
     }
-    if (e.def.kind === 'spinbot') {
+    if (e.def.boss) {
       this.scene.explosion(e.pos, 4);
       this.sound.grenade();
       this.sound.bossDrone(false);
+      this.cb.toast(`+$${reward}`, 'gold');
+    } else if (e.def.miniBoss) {
+      this.scene.sparks(hp, e.def.color, 24, 6);
+      this.scene.shockwave(e.pos, 2, e.def.color, 0.5);
+      this.sound.crit();
       this.cb.toast(`+$${reward}`, 'gold');
     } else {
       this.sound.kill();
@@ -1585,6 +2000,19 @@ export class Game {
       const crate = this.spawnAt('loot_crate', e.route, e.dist);
       crate.crateTimer = CRATE_TIME;
       this.scene.sparks(crate.hitPoint(this.v1), 0xfbbf24, 14, 3);
+    }
+    if (e.def.kind === 'market_baron') {
+      this.scene.sparks(hp, 0xfbbf24, 30, 6);
+      this.scene.shockwave(e.pos, 2.2, 0xfbbf24, 0.5);
+      this.sound.coin();
+    }
+    if (e.def.kind === 'yard_sapper') {
+      // Взрыв заряда: позиции рядом оглушены
+      this.scene.explosion(e.pos, 2.4);
+      this.sound.grenade();
+      for (const tw of this.towers.values()) {
+        if (hdist2(tw.pos, e.pos) < SAPPER_BLAST_RADIUS * SAPPER_BLAST_RADIUS) this.disableTower(tw, SAPPER_BLAST_TIME, 'blast');
+      }
     }
     if (e.def.kind === 'loot_crate') {
       this.scene.sparks(hp, 0xfbbf24, 24, 5);
@@ -1678,7 +2106,8 @@ export class Game {
         for (const e of this.enemies) {
           if (!e.alive || hdist2(e.pos, pos) > R * R) continue;
           // Босс и АФК-зомби почти не реагируют на флешки
-          e.stun = Math.max(e.stun, e.def.kind === 'spinbot' || e.def.kind === 'afk' ? stun * 0.3 : stun);
+          const k = e.def.boss || e.def.kind === 'afk' ? BOSS_FLASH : e.def.miniBoss ? MINIBOSS_FLASH : 1;
+          e.stun = Math.max(e.stun, stun * k);
         }
         this.clearSmokes(pos, R + 1);
         this.scene.flashBang(pos, R);
@@ -1735,7 +2164,7 @@ export class Game {
       const r2 = z.radius * z.radius;
       for (const e of this.enemies) {
         // АФК-зомби не замедляется, Буст-тиммейт — во время рывка
-        if (!e.alive || e.def.flying || e.def.kind === 'afk' || e.slowImmuneTimer > 0 || hdist2(e.pos, z.pos) > r2) continue;
+        if (!e.alive || e.def.flying || e.def.slowImmune || e.slowImmuneTimer > 0 || hdist2(e.pos, z.pos) > r2) continue;
         e.slowTimer = 0.25;
         e.slowFactor = Math.min(e.slowFactor, 1 - z.factor);
       }
@@ -1766,6 +2195,10 @@ export class Game {
   private finish(victory: boolean): void {
     if (this.phase === 'ended') return;
     this.phase = 'ended';
+    // Глобальные эффекты боссов не переживают матч
+    this.sandstormTimer = 0;
+    this.fireTrails = [];
+    for (const tw of this.towers.values()) tw.empTimer = 0;
     this.placing = null;
     this.picked = null;
     this.sound.bossDrone(false);
@@ -1794,10 +2227,10 @@ export class Game {
     const c = roleColorCss(tw.def.role);
     if (tw.blindTimer > 0) return `<span class="tier-badge is-lag is-blind">${t('blind')}</span>`;
     if (tw.lagTimer > 0) {
-      const key = tw.disabledBy === 'fire' ? 'burning' : tw.disabledBy === 'shot' ? 'sniped' : 'lag';
+      const key = tw.disabledBy === 'fire' ? 'burning' : tw.disabledBy === 'shot' ? 'sniped' : tw.disabledBy === 'blast' ? 'blast' : 'lag';
       return `<span class="tier-badge is-lag">${t(key)}</span>`;
     }
-    const tox = tw.toxic ? ' is-toxic' : '';
+    const tox = tw.toxic ? ' is-toxic' : tw.empTimer > 0 ? ' is-emp' : '';
     return `<span class="tier-badge${tox}" style="--c:${c}">T${tw.tier + 1}</span>`;
   }
 

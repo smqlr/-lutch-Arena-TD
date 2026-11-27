@@ -160,7 +160,24 @@ export type EnemyKind =
   | 'onetap'
   | 'boosted_ally'
   | 'loot_crate'
-  | 'mini_bot';
+  | 'mini_bot'
+  | 'dune_juggernaut'
+  | 'alley_pyromancer'
+  | 'reactor_core'
+  | 'overpass_overlord'
+  | 'carpet_ninja'
+  | 'market_baron'
+  | 'long_awper'
+  | 'short_breacher'
+  | 'flash_maestro'
+  | 'fountain_tank'
+  | 'yard_sapper'
+  | 'vent_phantom'
+  | 'container_mech'
+  | 'ddos_overlord'
+  | 'canal_amphibian'
+  | 'bridge_rammer'
+  | 'hill_jammer';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -185,6 +202,14 @@ export interface EnemyDef {
    * Награда фиксированная: без бонуса номера волны и экономической ауры.
    */
   summon?: boolean;
+  /** Босс: полоска HP всегда, иммунитет к мгновенным убийствам (×3 урона вместо них), флешки — 30% длительности */
+  boss?: boolean;
+  /** Мини-босс: полоска HP всегда, вместо мгновенных убийств ×2.5 урона, флешки — 50% длительности */
+  miniBoss?: boolean;
+  /** Всегда идёт по маршруту с этим id, если он есть на карте */
+  forcedRoute?: string;
+  /** Иммунитет к замедлению */
+  slowImmune?: boolean;
 }
 
 /* --------------------------------- Волны ---------------------------------- */
@@ -208,7 +233,8 @@ export type WaveTag =
   | 'shield'
   | 'content'
   | 'chaos'
-  | 'servers';
+  | 'servers'
+  | 'miniboss';
 
 export interface WaveGroup {
   kind: EnemyKind;

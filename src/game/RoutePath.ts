@@ -35,6 +35,12 @@ export class RoutePath {
     return out.copy(this.pts[i]).lerp(this.pts[i + 1], t);
   }
 
+  /** Покрытие сегмента под точкой d (вода канала и т. п.) */
+  surfaceAt(d: number): string {
+    const i = this.segAt(THREE.MathUtils.clamp(d, 0, this.length - 0.001));
+    return this.def.points[i][3] ?? 'cobble';
+  }
+
   /** Направление движения в горизонтальной плоскости */
   direction(d: number, out: THREE.Vector3): THREE.Vector3 {
     const i = this.segAt(THREE.MathUtils.clamp(d, 0, this.length - 0.001));

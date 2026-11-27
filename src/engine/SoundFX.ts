@@ -187,6 +187,20 @@ export class SoundFX {
     this.noiseBurst(0.55, 'lowpass', 1200, 120, 0.85);
   }
 
+  /** Песчаная буря Джаггернаута */
+  storm(): void {
+    if (!this.ok('storm', 900)) return;
+    this.noiseBurst(1.4, 'bandpass', 500, 260, 0.4, 0.7, 0);
+    this.noiseBurst(0.9, 'highpass', 2600, 1800, 0.12, 0.8, 0.2);
+  }
+
+  /** ЭМИ-импульс Ядра Реактора */
+  emp(): void {
+    if (!this.ok('emp', 400)) return;
+    this.tone('sawtooth', 1200, 70, 0.5, 0.18);
+    this.noiseBurst(0.35, 'highpass', 5000, 1500, 0.22);
+  }
+
   trap(): void {
     if (!this.ok('trap', 120)) return;
     this.tone('square', 1250, 1250, 0.06, 0.08);

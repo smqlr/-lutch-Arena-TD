@@ -1,8 +1,8 @@
 # Clutch Arena TD
 
 A tactical 3D tower defense set in an esports arena. Build a squad of five pros, place them anywhere off the
-enemy route — ground, rooftops, crates, containers — and hold the plant site against 15 enemy types,
-from eco rushers and lag-jumping ping abusers to cheaters, flash trolls and the Spinbot boss.
+enemy route — ground, rooftops, crates, containers — and hold the plant site against dozens of enemy types,
+from eco rushers and lag-jumping ping abusers to cheaters, flash trolls, a boss on every map and 13 mini-bosses.
 
 **▶ Play online: https://smqlr.github.io/-lutch-Arena-TD/**
 
@@ -14,8 +14,11 @@ Built with TypeScript, Vite, Three.js, Tailwind CSS and the Web Audio API. Made 
 - 5 original arenas (Bazaar, Dune Citadel, Old Quarter, Reactor, Interchange) with multiple routes
 - 30 units in 5 roles (AWPer, Entry Fragger, IGL, Support, Lurker), 3 weapon tiers each, unique passives
   and signature poses
-- 15 enemies with their own mechanics: smoke, lag, DDoS drones, screamers, toxic auras, flashes, dodging
-  cheaters, AFK tanks and a shielded boss
+- 23 wave enemies with their own mechanics: smoke, lag, DDoS drones, screamers, toxic auras, flashes, dodging
+  cheaters, AFK tanks, shield campers, healing streamers, tower-disabling snipers and walking bot farms
+- A final boss per map (Spinbot, Dune Juggernaut, Alley Pyromancer, Reactor Core, Overpass Overlord) and
+  13 map mini-bosses tied to the map's routes: sandstorms, EMP pulses, fire trails, troop drops and more
+- Wave count grows with difficulty: from 10–16 waves on Easy to 32–38 on Nightmare
 - Free placement with a high-ground bonus, force-buy, airdrops, interest, auto-waves and 2× speed
 - Tactical and free-flight cameras, procedural models, textures and sound — no external assets
 
