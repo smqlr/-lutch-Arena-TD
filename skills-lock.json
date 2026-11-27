@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "skills": {
+    "comment-cleanup": {
+      "source": "David-Li0406/meta-skill-evloving",
+      "commit": "ca3a335628981df10c36e00cb9850df2c247ab9a",
+      "sourceType": "github",
+      "skillPath": "skill-flow/data/skills-refined-36k/skillsmp/comment-cleanup/SKILL.md",
+      "computedHash": "56c0396c6cc2ed1382b70d16093f3ed24d630c6aa376865f3d7034bebfa8d7de"
+    }
+  }
+}
