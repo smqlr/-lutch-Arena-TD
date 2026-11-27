@@ -26,10 +26,20 @@ export const WAVE_NAMES: Record<WaveTag, Loc> = {
 
 const g = (kind: EnemyKind, count: number, interval: number, delay = 0): WaveGroup => ({ kind, count, interval, delay });
 
-/** Множитель HP волны: плавный рост + квадратичный хвост. */
+/**
+ * Доп. волны сложности (после базовых map.waves) растут линейно: HP — с наклоном последней базовой волны
+ * (EXTRA_HP_SLOPE — его доля), количество — шагом EXTRA_COUNT_STEP. Квадратичный рост сделал бы 25+ волн непроходимыми.
+ */
+const EXTRA_HP_SLOPE = 1.0;
+const EXTRA_COUNT_STEP = 0.1;
+
+/** Множитель HP волны: плавный рост + квадратичный хвост до последней базовой волны, дальше — линейный. */
 export function waveHpMul(n: number, map: MapDef): number {
-  const k = n - 1;
-  return (1 + 0.14 * k + 0.012 * k * k) * map.hpScale;
+  const k = Math.min(n, map.waves) - 1;
+  let m = 1 + 0.14 * k + 0.012 * k * k;
+  const over = n - map.waves;
+  if (over > 0) m += over * (0.14 + 0.024 * k) * EXTRA_HP_SLOPE;
+  return m * map.hpScale;
 }
 
 /** Бонус в конце волны */
@@ -136,9 +146,10 @@ export function buildWave(n: number, map: MapDef, diff: DifficultyDef = DIFFICUL
   else if (n <= EARLY.length) tag = EARLY[n - 1];
   else tag = cycle[(n - EARLY.length - 1) % cycle.length];
 
-  const late = Math.max(0, n - 9);
-  const countMul = (1 + late * 0.13) * (1 + (map.difficulty - 1) * 0.07) * diffCount(diff, map.difficulty);
-  const intervalMul = 1 / (1 + late * 0.05);
+  const over = Math.max(0, n - map.waves);
+  const late = Math.max(0, Math.min(n, map.waves) - 9);
+  const countMul = (1 + late * 0.13 + over * EXTRA_COUNT_STEP) * (1 + (map.difficulty - 1) * 0.07) * diffCount(diff, map.difficulty);
+  const intervalMul = 1 / (1 + (late + over * 0.5) * 0.05);
   const scale = (gr: WaveGroup, k = 1, minCount = 1): WaveGroup => ({
     ...gr,
     count: gr.kind === 'spinbot' ? gr.count : Math.max(minCount, Math.round(gr.count * k * countMul)),
