@@ -149,7 +149,18 @@ export type EnemyKind =
   | 'flasher'
   | 'toxic'
   | 'afk'
-  | 'noob';
+  | 'noob'
+  | 'camper'
+  | 'booster'
+  | 'ragequitter'
+  | 'streamer'
+  | 'collector'
+  | 'troll'
+  | 'botfarm'
+  | 'onetap'
+  | 'boosted_ally'
+  | 'loot_crate'
+  | 'mini_bot';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -169,6 +180,11 @@ export interface EnemyDef {
   /** Щит (поглощает урон, регенерирует) */
   shield: number;
   color: number;
+  /**
+   * Появляется только от способностей других врагов (не в волнах, не в превью меню).
+   * Награда фиксированная: без бонуса номера волны и экономической ауры.
+   */
+  summon?: boolean;
 }
 
 /* --------------------------------- Волны ---------------------------------- */
@@ -188,7 +204,11 @@ export type WaveTag =
   | 'afk'
   | 'toxic'
   | 'flash'
-  | 'cheaters';
+  | 'cheaters'
+  | 'shield'
+  | 'content'
+  | 'chaos'
+  | 'servers';
 
 export interface WaveGroup {
   kind: EnemyKind;

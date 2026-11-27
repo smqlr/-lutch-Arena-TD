@@ -348,10 +348,10 @@ export class MainMenu {
       if (!u) return `<div class="squad-slot" style="height:48px"><span class="text-xs text-slate-500">${t('squadSlotEmpty')}</span></div>`;
       return `<div class="squad-slot is-filled" style="--c:${roleColorCss(u.role)};height:48px"><div class="font-display font-extrabold text-[13px] truncate">${u.nick}</div><div class="text-[10px]" style="color:${roleColorCss(u.role)}">${roleName(u.role)}</div></div>`;
     }).join('');
-    // Только враги, которые реально появляются в волнах этой карты
+    // Только враги, которые реально появляются в волнах этой карты (без спавнов от способностей)
     const onMap = mapEnemyKinds(m);
     const enemyChips = (Object.keys(ENEMIES) as (keyof typeof ENEMIES)[])
-      .filter((k) => onMap.has(k))
+      .filter((k) => onMap.has(k) && !ENEMIES[k].summon)
       .map((k) => {
         const e = ENEMIES[k];
         return `<span class="chip" title="${loc(e.desc)}" style="color:#${e.color.toString(16).padStart(6, '0')}">${loc(e.name)}</span>`;

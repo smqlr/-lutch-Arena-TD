@@ -51,6 +51,66 @@ const CHEATER_DODGE = 0.25;
 const NOOB_BONUS = 20;
 const SELL_REFUND = 0.75;
 const AIRDROP_MONEY = 150;
+/** Кемпер: стойка со щитом раз в 6 с ходьбы на 3 с, блок 85% урона в секторе ±60° */
+const CAMPER_COOLDOWN = 6;
+const CAMPER_STANCE = 3;
+const CAMPER_BLOCK = 0.85;
+const CAMPER_ARC_COS = 0.5;
+/** Буст-тиммейт: иммунитет к замедлению после смерти носильщика */
+const BOOST_SLOW_IMMUNE = 1.5;
+/** Рейдж-квиттер: порог HP, время «вне игры», прыжок вперёд по маршруту */
+const RAGE_HP = 0.35;
+const RAGE_VANISH = 2;
+const RAGE_JUMP = 4.5;
+/** Стример: радиус и скорость лечения (доля макс. HP в секунду, несколько стримеров не складываются) */
+const STREAMER_RADIUS = 4;
+const STREAMER_HEAL = 0.06;
+/** Кейс Коллекционера: время до открытия, награда смурфов из кейса */
+const CRATE_TIME = 3;
+const CRATE_SMURFS = 3;
+const CRATE_SMURF_BOUNTY = 2;
+/** Тролль: молотов по башне */
+const TROLL_COOLDOWN = 6;
+const TROLL_RANGE = 6;
+const TROLL_BURN = 2;
+/** Бот-ферма: интервал спавна и общий предел живых мини-ботов */
+const BOTFARM_COOLDOWN = 4;
+const MINI_BOT_CAP = 30;
+/** Вантап-снайпер */
+const ONETAP_COOLDOWN = 7;
+const ONETAP_RANGE = 14;
+const ONETAP_AIM = 0.8;
+const ONETAP_DISABLE = 3;
+
+/** Высота точки попадания над землёй (по умолчанию 1.2) */
+const HIT_HEIGHT: Partial<Record<EnemyKind, number>> = {
+  spinbot: 2.0,
+  ping: 1.1,
+  booster: 1.45,
+  botfarm: 1.4,
+  boosted_ally: 0.9,
+  loot_crate: 0.5,
+  mini_bot: 0.6,
+};
+
+/** Почему башня не стреляет: лаг (DDoS), огонь (молотов Тролля), выстрел Вантап-снайпера */
+export type DisableKind = 'lag' | 'fire' | 'shot';
+
+interface DamageOpts {
+  /** Сплеш, шрапнель, HE-граната — проходят мимо щита Кемпера */
+  splash?: boolean;
+  /** Огонь молотова — проходит мимо щита Кемпера */
+  fire?: boolean;
+}
+const SPLASH: DamageOpts = { splash: true };
+const FIRE: DamageOpts = { fire: true };
+
+function lerpAngle(a: number, b: number, k: number): number {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * k;
+}
 
 export class Tower {
   readonly def: UnitDef;
@@ -72,6 +132,8 @@ export class Tower {
   streakTimer = 0;
   utilTimer = 1.5;
   lagTimer = 0;
+  /** Чем вызвано отключение по lagTimer (для бейджа) */
+  disabledBy: DisableKind = 'lag';
   /** Ослеплён флешкой Флешера */
   blindTimer = 0;
   /** Рядом Токсик: темп стрельбы снижен */
@@ -127,6 +189,30 @@ export class Enemy {
   /** Лаггер ждёт окончания отката, чтобы сделать рывок вперёд */
   lunge = false;
   progress = 0;
+  /** Текущий поворот модели по Y */
+  yaw = 0;
+  /** Принудительный поворот (к башне); null — по направлению маршрута */
+  faceYaw: number | null = null;
+  /** Кемпер: стойка со щитом, её остаток и направление щита (единичный вектор X/Z) */
+  shieldActive = false;
+  shieldTimer = 0;
+  readonly shieldDir = new THREE.Vector2(0, 1);
+  /** Рейдж-квиттер: «вне игры» (невидим, неуязвим, не цель), способность одноразовая */
+  vanishTimer = 0;
+  rageUsed = false;
+  /** Кейс: секунд до открытия */
+  crateTimer = 0;
+  /** Вантап-снайпер: прицеливание в башню */
+  aimTimer = 0;
+  aimTarget: Tower | null = null;
+  /** Иммунитет к замедлению (Буст-тиммейт после рывка) */
+  slowImmuneTimer = 0;
+  /** Фиксированная награда (смурфы из кейса); null — обычная */
+  bounty: number | null = null;
+  /** Таймер визуальных эффектов (лечение, рывок) */
+  fxTimer = 0;
+  /** Время последних искр щита Кемпера */
+  blockFxAt = -10;
 
   constructor(def: EnemyDef, route: RoutePath, hpMul: number, speedMul: number) {
     this.def = def;
@@ -136,11 +222,27 @@ export class Enemy {
     this.maxShield = this.shield = def.shield * hpMul;
     this.speed = def.speed * speedMul;
     this.lane = def.flying || def.kind === 'spinbot' ? 0 : (Math.random() - 0.5) * 0.9;
-    this.special = 1 + Math.random() * 2;
+    switch (def.kind) {
+      case 'camper':
+        this.special = 3 + Math.random() * 2;
+        break;
+      case 'troll':
+        this.special = 2.5 + Math.random() * 1.5;
+        break;
+      case 'botfarm':
+        this.special = BOTFARM_COOLDOWN;
+        break;
+      case 'onetap':
+        this.special = 2 + Math.random() * 2;
+        break;
+      default:
+        this.special = 1 + Math.random() * 2;
+    }
   }
 
   hitPoint(out: THREE.Vector3): THREE.Vector3 {
-    const h = this.def.flying ? 0.05 : this.def.kind === 'spinbot' ? 2.0 : this.def.kind === 'ping' ? 1.1 : 1.2;
+    let h = this.def.flying ? 0.05 : (HIT_HEIGHT[this.def.kind] ?? 1.2);
+    if (this.shieldActive) h -= 0.2;
     return out.copy(this.pos).setY(this.pos.y + h);
   }
 }
@@ -152,6 +254,16 @@ interface ThrowFx {
   t: number;
   dur: number;
   kind: ThrowableKind;
+  tower: Tower;
+}
+
+/** Молотов Тролля, летящий в башню */
+interface EnemyThrow {
+  obj: THREE.Group;
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  t: number;
+  dur: number;
   tower: Tower;
 }
 
@@ -217,6 +329,8 @@ export class Game {
   private fires: FireDmg[] = [];
   private slowZones: SlowZone[] = [];
   private throws: ThrowFx[] = [];
+  /** Броски врагов по башням (отдельно от утилит Support) */
+  private enemyThrows: EnemyThrow[] = [];
   private raycaster = new THREE.Raycaster();
   private placement: Placement;
   private cursor = new PlacementCursor();
@@ -262,6 +376,9 @@ export class Game {
     }
     for (const e of this.enemies) e.model.dispose();
     for (const th of this.throws) th.obj.removeFromParent();
+    for (const th of this.enemyThrows) th.obj.removeFromParent();
+    this.throws = [];
+    this.enemyThrows = [];
     this.root.removeFromParent();
     this.labels.clear();
     this.scene.hideRange();
@@ -658,6 +775,7 @@ export class Game {
     for (const e of this.enemies) e.inSmoke = e.alive && this.isInSmoke(e);
     for (const tw of this.towers.values()) this.updateTower(tw, dt);
     this.updateThrows(dt);
+    this.updateEnemyThrows(dt);
     this.updateZones(dt);
 
     for (let i = this.enemies.length - 1; i >= 0; i--) if (!this.enemies[i].alive) this.enemies.splice(i, 1);
@@ -682,38 +800,61 @@ export class Game {
         break;
       }
     }
+    this.spawnAt(kind, route, 0);
+  }
+
+  /** Спавн на заданном маршруте и дистанции (волны, Бустер, Коллекционер, Бот-ферма, кейс) */
+  private spawnAt(kind: EnemyKind, route: RoutePath, dist: number): Enemy {
     const w = this.currentWave;
     let hpMul = w ? w.hpMul : 1;
     // Босс растёт по волнам мягче обычных врагов: позиции делятся между маршрутами,
     // и в каждой точке его достают лишь 1–3 бойца
     if (kind === 'spinbot') hpMul = 1 + (hpMul - 1) * 0.65;
     const speedMul = (1 + 0.012 * Math.max(0, this.waveIndex - 1)) * this.diff.speed;
-    const e = new Enemy(def, route, hpMul, speedMul);
+    const e = new Enemy(ENEMIES[kind], route, hpMul, speedMul);
+    e.dist = THREE.MathUtils.clamp(dist, 0, route.length - 0.5);
     this.placeEnemy(e);
     this.root.add(e.model.root);
     this.enemies.push(e);
+    return e;
   }
 
-  private placeEnemy(e: Enemy): void {
+  /** dt > 0 — плавный разворот (Кемпер и Вантап поворачиваются к башне) */
+  private placeEnemy(e: Enemy, dt = 0): void {
     e.route.sample(e.dist, e.pos);
     const dir = e.route.direction(e.dist, this.v1);
     e.pos.x += -dir.z * e.lane;
     e.pos.z += dir.x * e.lane;
     if (e.def.flying) e.pos.y += 3.4;
     e.model.root.position.copy(e.pos);
-    e.model.body.rotation.y = Math.atan2(dir.x, dir.z);
+    const want = e.faceYaw ?? Math.atan2(dir.x, dir.z);
+    e.yaw = dt > 0 && (e.def.kind === 'camper' || e.def.kind === 'onetap') ? lerpAngle(e.yaw, want, Math.min(1, dt * 10)) : want;
+    e.model.body.rotation.y = e.yaw;
     e.progress = e.dist / e.route.length;
   }
 
   private updateEnemies(dt: number): void {
     const screamers = this.enemies.filter((e) => e.alive && e.def.kind === 'screamer');
+    // Стримеры лечат, пока живы и не оглушены
+    const streamers = this.enemies.filter((e) => e.alive && e.def.kind === 'streamer' && e.stun <= 0);
     for (const e of this.enemies) {
       if (!e.alive) continue;
+      // Рейдж-квиттер «вышел из игры»: стоит невидимым и неуязвимым, затем переподключается дальше по маршруту
+      if (e.vanishTimer > 0) {
+        e.vanishTimer -= dt;
+        if (e.vanishTimer > 0) continue;
+        e.dist = Math.max(e.dist, Math.min(e.route.length - 1, e.dist + RAGE_JUMP));
+        this.placeEnemy(e);
+        e.model.setVanished(false);
+        this.scene.sparks(e.hitPoint(this.v1), 0xef4444, 16, 4);
+        this.sound.lag();
+      }
       let mul = 1;
       if (e.stun > 0) {
         e.stun -= dt;
         mul = 0;
       }
+      if (e.slowImmuneTimer > 0) e.slowImmuneTimer -= dt;
       if (e.slowTimer > 0) {
         e.slowTimer -= dt;
         mul *= e.slowFactor;
@@ -724,6 +865,7 @@ export class Game {
           break;
         }
       }
+      if (streamers.length) this.streamerHeal(e, streamers, dt);
 
       // Особые способности
       e.special -= dt;
@@ -755,7 +897,7 @@ export class Game {
             if (near.length) {
               e.special = 4;
               for (const { tw } of near) {
-                tw.lagTimer = 1.7;
+                this.disableTower(tw, 1.7, 'lag');
                 this.scene.tracer(e.pos, tw.labelPos.clone().setY(tw.pos.y + 1.5), 0xff2d55, 0.07, 0.25);
               }
               this.sound.lag();
@@ -774,12 +916,7 @@ export class Game {
             e.invuln = 0.25;
             e.lunge = true;
             e.dist = Math.max(0, e.dist - 1);
-            for (const tw of this.towers.values()) {
-              if (tw.lastTarget === e) {
-                tw.lastTarget = null;
-                tw.rampStacks = 0;
-              }
-            }
+            this.dropTargeting(e);
             this.scene.sparks(e.hitPoint(this.v1), 0xa855f7, 10, 3);
             this.sound.lag();
           }
@@ -788,6 +925,77 @@ export class Game {
           if (e.special <= 0) {
             e.special = 5;
             this.popFlash(e);
+          }
+          break;
+        case 'camper':
+          if (e.shieldActive) {
+            e.shieldTimer -= dt;
+            // Флешка сбивает стойку
+            if (e.shieldTimer <= 0 || e.stun > 0) this.dropShield(e);
+          } else if (e.special <= 0 && e.stun <= 0) this.raiseShield(e);
+          if (e.shieldActive) mul = 0;
+          break;
+        case 'boosted_ally':
+          // След рывка
+          if (e.slowImmuneTimer > 0) {
+            e.fxTimer -= dt;
+            if (e.fxTimer <= 0) {
+              e.fxTimer = 0.12;
+              this.scene.sparks(e.hitPoint(this.v1), 0xf97316, 4, 2.5);
+            }
+          }
+          break;
+        case 'loot_crate':
+          e.crateTimer -= dt;
+          e.model.setCrateTimer(Math.max(0, e.crateTimer / CRATE_TIME));
+          if (e.crateTimer <= 0) {
+            this.openCrate(e);
+            continue;
+          }
+          break;
+        case 'troll':
+          if (e.special <= 0 && e.stun <= 0) {
+            const near = [...this.towers.values()].filter((tw) => hdist2(tw.pos, e.pos) < TROLL_RANGE * TROLL_RANGE);
+            if (near.length) {
+              e.special = TROLL_COOLDOWN;
+              this.throwMolotov(e, near[Math.floor(Math.random() * near.length)]);
+            } else e.special = 0.4;
+          }
+          break;
+        case 'botfarm':
+          // Оглушение ставит спавн на паузу
+          if (e.stun > 0) e.special += dt;
+          else if (e.special <= 0) {
+            e.special = BOTFARM_COOLDOWN;
+            if (this.enemies.filter((o) => o.alive && o.def.kind === 'mini_bot').length < MINI_BOT_CAP) {
+              const bot = this.spawnAt('mini_bot', e.route, Math.max(0, e.dist - 0.8));
+              this.scene.sparks(bot.hitPoint(this.v1), 0x34d399, 10, 3);
+              this.scene.shockwave(bot.pos, 0.9, 0x22c55e, 0.35);
+            }
+          }
+          break;
+        case 'onetap':
+          if (e.aimTarget) {
+            const tw = e.aimTarget;
+            // Флешка сбивает прицел; проданная башня — тоже
+            if (e.stun > 0 || !this.towers.has(tw.id)) this.cancelAim(e);
+            else {
+              e.aimTimer -= dt;
+              e.faceYaw = Math.atan2(tw.pos.x - e.pos.x, tw.pos.z - e.pos.z);
+              mul = 0;
+              if (e.aimTimer <= 0) this.snipe(e, tw);
+            }
+          } else if (e.stun > 0) e.special += dt;
+          else if (e.special <= 0) {
+            const tw = this.snipeTarget(e);
+            if (tw) {
+              e.special = ONETAP_COOLDOWN;
+              e.aimTarget = tw;
+              e.aimTimer = ONETAP_AIM;
+              e.faceYaw = Math.atan2(tw.pos.x - e.pos.x, tw.pos.z - e.pos.z);
+              e.model.setStance(true);
+              mul = 0;
+            } else e.special = 0.4;
           }
           break;
         default:
@@ -808,12 +1016,204 @@ export class Game {
         this.enemyReachedBase(e);
         continue;
       }
-      this.placeEnemy(e);
+      this.placeEnemy(e, dt);
       e.model.update(dt, mul, e.stun > 0, this.scene.camera);
+      if (e.aimTarget) e.model.setLaser(e.model.muzzleWorld(this.v1), this.towerAimPoint(e.aimTarget, this.v2));
       const showBar = e.def.kind === 'spinbot' || e.hp < e.maxHp - 0.01;
       e.model.hp.group.visible = showBar;
       if (showBar) e.model.hp.set(e.hp / e.maxHp, e.maxShield > 0 ? e.shield / e.maxShield : 0);
     }
+  }
+
+  /** Башни, которые вели этого врага, теряют цель (Лаггер, Рейдж-квиттер) */
+  private dropTargeting(e: Enemy): void {
+    for (const tw of this.towers.values()) {
+      if (tw.lastTarget === e) {
+        tw.lastTarget = null;
+        tw.rampStacks = 0;
+      }
+    }
+  }
+
+  /** Отключает стрельбу башни; более долгое отключение не сокращается коротким */
+  private disableTower(tw: Tower, sec: number, kind: DisableKind): void {
+    if (sec <= tw.lagTimer) return;
+    tw.lagTimer = sec;
+    tw.disabledBy = kind;
+  }
+
+  private towerAimPoint(tw: Tower, out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(tw.pos).setY(tw.pos.y + 1.35);
+  }
+
+  /** Аура Стримера: лечение не складывается, босс и кейсы не лечатся */
+  private streamerHeal(e: Enemy, streamers: Enemy[], dt: number): void {
+    const k = e.def.kind;
+    if (k === 'streamer' || k === 'loot_crate' || k === 'spinbot' || e.hp >= e.maxHp) return;
+    for (const s of streamers) {
+      if (hdist2(s.pos, e.pos) > STREAMER_RADIUS * STREAMER_RADIUS) continue;
+      e.hp = Math.min(e.maxHp, e.hp + e.maxHp * STREAMER_HEAL * dt);
+      e.fxTimer -= dt;
+      if (e.fxTimer <= 0) {
+        e.fxTimer = 0.6;
+        const p = e.hitPoint(this.v3);
+        for (let i = 0; i < 5; i++) {
+          this.scene.particle({
+            pos: p,
+            vel: new THREE.Vector3((Math.random() - 0.5) * 1.2, 1.2 + Math.random() * 1.2, (Math.random() - 0.5) * 1.2),
+            life: 0.7,
+            size0: 0.28,
+            size1: 0.06,
+            color: 0x86efac,
+            color1: 0x16a34a,
+          });
+        }
+      }
+      return;
+    }
+  }
+
+  /** Кемпер встаёт и разворачивает щит к ближайшему стрелку (или вперёд по маршруту) */
+  private raiseShield(e: Enemy): void {
+    let best: Tower | null = null;
+    let bestScore = Infinity;
+    for (const tw of this.towers.values()) {
+      const d2 = hdist2(tw.pos, e.pos);
+      const shooting = tw.lastTarget === e;
+      const r = tw.stats.range + 1;
+      if (!shooting && d2 > r * r) continue;
+      const score = shooting ? d2 * 0.25 : d2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = tw;
+      }
+    }
+    let dx: number;
+    let dz: number;
+    if (best) {
+      dx = best.pos.x - e.pos.x;
+      dz = best.pos.z - e.pos.z;
+    } else {
+      const dir = e.route.direction(e.dist, this.v1);
+      dx = dir.x;
+      dz = dir.z;
+    }
+    e.shieldDir.set(dx, dz);
+    if (e.shieldDir.lengthSq() < 1e-6) e.shieldDir.set(0, 1);
+    e.shieldDir.normalize();
+    e.shieldActive = true;
+    e.shieldTimer = CAMPER_STANCE;
+    e.faceYaw = Math.atan2(e.shieldDir.x, e.shieldDir.y);
+    e.model.setStance(true);
+    this.scene.shockwave(e.pos, 1.1, 0x38bdf8, 0.4);
+  }
+
+  private dropShield(e: Enemy): void {
+    e.shieldActive = false;
+    e.special = CAMPER_COOLDOWN;
+    e.faceYaw = null;
+    e.model.setStance(false);
+  }
+
+  /** Попадание в щит Кемпера: выстрел пришёл из сектора ±60° перед щитом */
+  private shieldBlocks(e: Enemy, tw: Tower): boolean {
+    const dx = tw.pos.x - e.pos.x;
+    const dz = tw.pos.z - e.pos.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-4) return false;
+    return (dx * e.shieldDir.x + dz * e.shieldDir.y) / len > CAMPER_ARC_COS;
+  }
+
+  private rageQuit(e: Enemy): void {
+    e.rageUsed = true;
+    e.vanishTimer = RAGE_VANISH;
+    e.stun = 0;
+    e.slowTimer = 0;
+    this.scene.sparks(e.hitPoint(this.v1), 0xef4444, 18, 4);
+    this.scene.shockwave(e.pos, 1.2, 0xef4444, 0.4);
+    e.model.setVanished(true);
+    this.dropTargeting(e);
+    this.sound.lag();
+  }
+
+  /** Кейс не разбили вовремя: исчезает без награды и выпускает смурфов */
+  private openCrate(e: Enemy): void {
+    e.alive = false;
+    const p = e.hitPoint(this.v3);
+    this.scene.sparks(p, 0xfbbf24, 22, 5);
+    this.scene.shockwave(e.pos, 1.6, 0xfbbf24, 0.45);
+    this.sound.grenade();
+    e.model.dispose();
+    for (let i = 0; i < CRATE_SMURFS; i++) {
+      const s = this.spawnAt('smurf', e.route, e.dist + (i - (CRATE_SMURFS - 1) / 2) * 0.4);
+      s.bounty = CRATE_SMURF_BOUNTY;
+    }
+  }
+
+  private throwMolotov(e: Enemy, tw: Tower): void {
+    e.model.playThrow();
+    const from = e.pos.clone().setY(e.pos.y + 2.0);
+    const to = tw.pos.clone().setY(tw.pos.y + 0.1);
+    const obj = buildThrowable('molotov');
+    obj.position.copy(from);
+    this.root.add(obj);
+    this.enemyThrows.push({ obj, from, to, t: 0, dur: 0.55 + Math.sqrt(hdist2(from, to)) * 0.03, tower: tw });
+  }
+
+  private updateEnemyThrows(dt: number): void {
+    for (const th of this.enemyThrows) {
+      th.t += dt / th.dur;
+      const k = Math.min(1, th.t);
+      th.obj.position.lerpVectors(th.from, th.to, k);
+      th.obj.position.y += Math.sin(Math.PI * k) * 2.6;
+      th.obj.rotation.x += dt * 12;
+      th.obj.rotation.z += dt * 7;
+      if (Math.random() < 0.6) {
+        this.scene.particle({ pos: th.obj.position, vel: new THREE.Vector3(0, 0.6, 0), life: 0.3, size0: 0.35, size1: 0.05, color: 0xffb347, color1: 0xb02000 });
+      }
+      if (th.t < 1) continue;
+      th.obj.removeFromParent();
+      const tw = th.tower;
+      const alive = this.towers.has(tw.id);
+      this.scene.addFire((alive ? tw.pos : th.to).clone(), 1.2, TROLL_BURN);
+      this.sound.molotov();
+      if (alive) this.disableTower(tw, TROLL_BURN, 'fire');
+    }
+    this.enemyThrows = this.enemyThrows.filter((th) => th.t < 1);
+  }
+
+  /** Цель Вантап-снайпера: AWP-позиции, иначе самая дальнобойная башня; уже отключённые — в последнюю очередь */
+  private snipeTarget(e: Enemy): Tower | null {
+    let best: Tower | null = null;
+    let bestScore = -Infinity;
+    for (const tw of this.towers.values()) {
+      if (hdist2(tw.pos, e.pos) > ONETAP_RANGE * ONETAP_RANGE) continue;
+      const score = (tw.def.role === 'awper' ? 1000 : 0) + tw.stats.range - (tw.lagTimer > 0.5 ? 2000 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = tw;
+      }
+    }
+    return best;
+  }
+
+  private cancelAim(e: Enemy): void {
+    e.aimTarget = null;
+    e.aimTimer = 0;
+    e.faceYaw = null;
+    e.model.setStance(false);
+    e.model.setLaser(null);
+  }
+
+  private snipe(e: Enemy, tw: Tower): void {
+    const muzzle = e.model.muzzleWorld(this.v1);
+    const hit = this.towerAimPoint(tw, this.v2);
+    this.scene.tracer(muzzle, hit, 0xff2d2d, 0.1, 0.22);
+    this.scene.muzzleFlash(muzzle, 0xff4d4d, 1.4);
+    this.scene.sparks(hit, 0xff3b3b, 12, 4);
+    this.sound.shot('sniper');
+    this.disableTower(tw, ONETAP_DISABLE, 'shot');
+    this.cancelAim(e);
   }
 
   private enemyReachedBase(e: Enemy): void {
@@ -912,7 +1312,7 @@ export class Game {
     let best: Enemy | null = null;
     let bestScore = -Infinity;
     for (const e of this.enemies) {
-      if (!e.alive) continue;
+      if (!e.alive || e.vanishTimer > 0) continue;
       const d2 = hdist2(e.pos, tw.pos);
       if (d2 > r2) continue;
       if (e.inSmoke && !seesSmoke) continue;
@@ -1041,7 +1441,7 @@ export class Game {
       let left = p.a;
       for (const e of this.enemies) {
         if (left <= 0) break;
-        if (!e.alive || e === target) continue;
+        if (!e.alive || e === target || e.vanishTimer > 0) continue;
         const ex = e.pos.x - tw.pos.x;
         const ez = e.pos.z - tw.pos.z;
         const along = ex * ux + ez * uz;
@@ -1067,7 +1467,7 @@ export class Game {
       for (const e of this.enemies) {
         if (!e.alive || e === target) continue;
         if (hdist2(e.pos, center) > r2) continue;
-        this.damage(e, dmg * k, base.pen, tw);
+        this.damage(e, dmg * k, base.pen, tw, SPLASH);
       }
       this.scene.shockwave(center, splash, 0xffb347, 0.25);
     }
@@ -1099,8 +1499,19 @@ export class Game {
     this.sound.flash();
   }
 
-  private damage(e: Enemy, amount: number, pen: number, tw: Tower | null): boolean {
-    if (!e.alive || e.invuln > 0) return false;
+  private damage(e: Enemy, amount: number, pen: number, tw: Tower | null, opts?: DamageOpts): boolean {
+    if (!e.alive || e.invuln > 0 || e.vanishTimer > 0) return false;
+    // Щит Кемпера держит прямые выстрелы спереди; сплеш, огонь, мгновенные убийства и выстрелы с фланга проходят
+    if (e.shieldActive && tw && amount < 1e8 && !opts?.splash && !opts?.fire && this.shieldBlocks(e, tw)) {
+      amount *= 1 - CAMPER_BLOCK;
+      if (this.time - e.blockFxAt > 0.08) {
+        e.blockFxAt = this.time;
+        const p = e.hitPoint(this.v3);
+        p.x += e.shieldDir.x * 0.6;
+        p.z += e.shieldDir.y * 0.6;
+        this.scene.sparks(p, 0x38bdf8, 6, 3);
+      }
+    }
     const eff = amount >= 1e8 ? amount : amount * (1 - e.def.armor * (1 - pen));
     e.lastHit = this.time;
     let rest = eff;
@@ -1114,15 +1525,19 @@ export class Game {
       this.kill(e, tw);
       return true;
     }
+    if (e.def.kind === 'ragequitter' && !e.rageUsed && e.hp < e.maxHp * RAGE_HP) this.rageQuit(e);
     return false;
   }
 
   private kill(e: Enemy, tw: Tower | null): void {
     e.alive = false;
-    let reward = e.def.reward + Math.floor(this.waveIndex / 3);
+    // Спавны способностей (и смурфы из кейса) дают фиксированную награду — без бонуса волны и ауры
+    const flat = !!e.def.summon || e.bounty !== null;
+    let reward = e.bounty ?? e.def.reward;
+    if (!flat) reward += Math.floor(this.waveIndex / 3);
     if (tw) {
       tw.kills++;
-      reward += tw.auraEcon;
+      if (!flat) reward += tw.auraEcon;
       const p = tw.def.passive;
       if (p.kind === 'killStreak') {
         tw.streak = Math.min(p.b, tw.streak + 1);
@@ -1159,6 +1574,24 @@ export class Game {
     }
     // Посмертные эффекты новых врагов
     if (e.def.kind === 'flasher') this.popFlash(e);
+    if (e.def.kind === 'booster') {
+      // Союзник со спины носильщика делает рывок вперёд
+      const ally = this.spawnAt('boosted_ally', e.route, e.dist);
+      ally.slowImmuneTimer = BOOST_SLOW_IMMUNE;
+      this.scene.sparks(ally.hitPoint(this.v1), 0xf97316, 16, 4);
+      this.scene.shockwave(ally.pos, 1.2, 0xf97316, 0.35);
+    }
+    if (e.def.kind === 'collector') {
+      const crate = this.spawnAt('loot_crate', e.route, e.dist);
+      crate.crateTimer = CRATE_TIME;
+      this.scene.sparks(crate.hitPoint(this.v1), 0xfbbf24, 14, 3);
+    }
+    if (e.def.kind === 'loot_crate') {
+      this.scene.sparks(hp, 0xfbbf24, 24, 5);
+      this.scene.shockwave(e.pos, 1.4, 0xfbbf24, 0.4);
+      this.sound.coin();
+      this.cb.toast(`+$${reward}`, 'gold');
+    }
     if (e.def.kind === 'noob') {
       if (Math.random() < 0.5) {
         this.money += NOOB_BONUS;
@@ -1185,9 +1618,9 @@ export class Game {
     let best: THREE.Vector3 | null = null;
     let bestCount = 0;
     for (const e of this.enemies) {
-      if (!e.alive || e.def.flying || hdist2(e.pos, tw.pos) > r2) continue;
+      if (!e.alive || e.def.flying || e.vanishTimer > 0 || hdist2(e.pos, tw.pos) > r2) continue;
       let n = 0;
-      for (const o of this.enemies) if (o.alive && !o.def.flying && hdist2(o.pos, e.pos) < R * R) n++;
+      for (const o of this.enemies) if (o.alive && !o.def.flying && o.vanishTimer <= 0 && hdist2(o.pos, e.pos) < R * R) n++;
       // предпочитаем цели в дыму — утилита его рассеет
       if (e.inSmoke) n += 2;
       if (n > bestCount) {
@@ -1265,7 +1698,7 @@ export class Game {
         const dmg = p.b * power;
         for (const e of this.enemies) {
           if (!e.alive || hdist2(e.pos, pos) > R * R) continue;
-          this.damage(e, dmg, 0.5, tw);
+          this.damage(e, dmg, 0.5, tw, SPLASH);
         }
         this.clearSmokes(pos, R + 1.5);
         this.scene.explosion(pos, R);
@@ -1288,7 +1721,7 @@ export class Game {
       const r2 = f.vis.radius * f.vis.radius;
       for (const e of this.enemies) {
         if (!e.alive || e.def.flying || hdist2(e.pos, f.vis.pos) > r2) continue;
-        this.damage(e, f.dps * dt, 0.6, f.tower && this.towers.has(f.tower.id) ? f.tower : null);
+        this.damage(e, f.dps * dt, 0.6, f.tower && this.towers.has(f.tower.id) ? f.tower : null, FIRE);
       }
     }
     this.fires = this.fires.filter((f) => f.vis.alive);
@@ -1301,8 +1734,8 @@ export class Game {
       }
       const r2 = z.radius * z.radius;
       for (const e of this.enemies) {
-        // АФК-зомби не замедляется
-        if (!e.alive || e.def.flying || e.def.kind === 'afk' || hdist2(e.pos, z.pos) > r2) continue;
+        // АФК-зомби не замедляется, Буст-тиммейт — во время рывка
+        if (!e.alive || e.def.flying || e.def.kind === 'afk' || e.slowImmuneTimer > 0 || hdist2(e.pos, z.pos) > r2) continue;
         e.slowTimer = 0.25;
         e.slowFactor = Math.min(e.slowFactor, 1 - z.factor);
       }
@@ -1360,7 +1793,10 @@ export class Game {
   private tierBadge(tw: Tower): string {
     const c = roleColorCss(tw.def.role);
     if (tw.blindTimer > 0) return `<span class="tier-badge is-lag is-blind">${t('blind')}</span>`;
-    if (tw.lagTimer > 0) return `<span class="tier-badge is-lag">${t('lag')}</span>`;
+    if (tw.lagTimer > 0) {
+      const key = tw.disabledBy === 'fire' ? 'burning' : tw.disabledBy === 'shot' ? 'sniped' : 'lag';
+      return `<span class="tier-badge is-lag">${t(key)}</span>`;
+    }
     const tox = tw.toxic ? ' is-toxic' : '';
     return `<span class="tier-badge${tox}" style="--c:${c}">T${tw.tier + 1}</span>`;
   }

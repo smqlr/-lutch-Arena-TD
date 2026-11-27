@@ -953,6 +953,89 @@ export function pajamaTexture(): THREE.Texture {
   });
 }
 
+/** Клавиатура Рейдж-квиттера: ряды светлых клавиш, WASD подсвечены красным */
+export function keyboardTexture(): THREE.Texture {
+  return cachedCanvasTex('keyboard', 256, 96, (ctx) => {
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(0, 0, 256, 96);
+    const red = new Set(['1,2', '2,1', '2,2', '2,3']);
+    for (let r = 0; r < 5; r++) {
+      const off = r * 4;
+      for (let c = 0; c < 15; c++) {
+        const x = 6 + off + c * 16.4;
+        if (x + 13 > 252) break;
+        ctx.fillStyle = red.has(`${r},${c}`) ? '#ef4444' : '#cbd5e1';
+        ctx.fillRect(x, 5 + r * 18, 13, 14);
+      }
+    }
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(70, 77, 110, 14);
+  });
+}
+
+/** Пузырь со значком отключённого штекера над Рейдж-квиттером */
+export function unplugTexture(): THREE.Texture {
+  return cachedCanvasTex('unplug', 128, 128, (ctx) => {
+    ctx.fillStyle = '#b91c1c';
+    ctx.strokeStyle = '#111111';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.roundRect(12, 8, 104, 90, 18);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(52, 96);
+    ctx.lineTo(64, 122);
+    ctx.lineTo(76, 96);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#ffffff';
+    // Вилка: корпус, два штыря, провод
+    ctx.save();
+    ctx.translate(64, 53);
+    ctx.rotate(-Math.PI / 4);
+    ctx.fillRect(-14, -12, 28, 26);
+    ctx.fillRect(-9, -26, 6, 15);
+    ctx.fillRect(3, -26, 6, 15);
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(0, 14);
+    ctx.lineTo(0, 32);
+    ctx.stroke();
+    ctx.restore();
+    // Перечёркнуто
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(30, 22);
+    ctx.lineTo(98, 84);
+    ctx.stroke();
+  });
+}
+
+/** Куртка Скин-коллекционера: фиолетовая ткань с золотыми завитками */
+export function blingTexture(): THREE.Texture {
+  return cachedCanvasTex('bling', 128, 128, (ctx) => {
+    ctx.fillStyle = '#6d28d9';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 6; i++) {
+      const x = (i % 3) * 44 + 18;
+      const y = Math.floor(i / 3) * 64 + 24;
+      ctx.beginPath();
+      ctx.arc(x, y, 12, Math.PI * 0.2, Math.PI * 1.7);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + 14, y + 16, 7, Math.PI, Math.PI * 2.6);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#f472b6';
+    for (let i = 0; i < 10; i++) ctx.fillRect((i * 37) % 124, (i * 53) % 124, 4, 4);
+  });
+}
+
 /** Значок Wi-Fi над Пингом 999 */
 export function wifiTexture(): THREE.Texture {
   return cachedCanvasTex('wifi', 128, 128, (ctx) => {
