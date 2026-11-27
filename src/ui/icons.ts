@@ -32,6 +32,8 @@ export const ICONS = {
   info: svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'),
   sell: svg('<path d="M20 12l-8 8-9-9V3h8z"/><circle cx="7.5" cy="7.5" r="1.5"/>'),
   sword: svg('<path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6M16 16l4 4M19 21l2-2"/>'),
+  gem: svg('<path d="M6 3h12l4 6-10 12L2 9z"/><path d="M2 9h20M12 21L8 9l4-6 4 6z"/>'),
+  tv: svg('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M8 2l4 4 4-4"/><path d="M10 10.5v5l4-2.5z" fill="currentColor"/>'),
 };
 
 export function icon(name: keyof typeof ICONS): string {

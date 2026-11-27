@@ -42,7 +42,8 @@ export class CameraController {
   /** Ввод разрешён (в меню камера управляется автоматически) */
   inputEnabled = false;
   autoOrbit = false;
-  onTap: ((x: number, y: number) => void) | null = null;
+  /** Тап/клик без перетаскивания; touch — касание пальцем (нет наведения мышью) */
+  onTap: ((x: number, y: number, touch: boolean) => void) | null = null;
   onHover: ((x: number, y: number) => void) | null = null;
   onModeChange: ((m: CameraMode) => void) | null = null;
 
@@ -233,7 +234,7 @@ export class CameraController {
     this.dom.releasePointerCapture?.(e.pointerId);
     if (!p || !this.inputEnabled) return;
     const moved = Math.hypot(e.clientX - p.sx, e.clientY - p.sy);
-    if (!this.dragging && moved < 8 && (p.touch || p.button === 0) && this.pointers.size === 0) this.onTap?.(e.clientX, e.clientY);
+    if (!this.dragging && moved < 8 && (p.touch || p.button === 0) && this.pointers.size === 0) this.onTap?.(e.clientX, e.clientY, p.touch);
     if (this.pointers.size === 0) this.dragging = false;
   }
 

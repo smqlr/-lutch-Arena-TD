@@ -1,9 +1,10 @@
-import type { Lang, MapId, Role } from '../types/game';
+import type { DifficultyId, Lang, MapId, Role } from '../types/game';
+import { DIFFICULTIES, DIFFICULTY_ORDER, diffHp, nightmareGems } from '../data/difficulty';
+import { mapEnemyKinds, totalWaves } from '../data/waves';
 import { MAP_ORDER, ROLES } from '../types/game';
 import { MAPS } from '../data/maps';
 import { UNITS, getUnit } from '../data/units';
 import { ENEMIES } from '../data/enemies';
-import { mapEnemyKinds } from '../data/waves';
 import type { SaveManager } from '../game/Save';
 import { SQUAD_SIZE } from '../game/Save';
 import type { SoundFX } from '../engine/SoundFX';
@@ -25,6 +26,7 @@ import {
 } from '../i18n';
 import { icon } from './icons';
 import { confirmModal, toast } from './Overlay';
+import { ADS_PER_GEM_REWARD, AD_CREDITS, CREDITS_PER_GEM, GEM_PACKS, GEM_REWARD, gemPrice } from '../data/economy';
 import { UnitPreview } from './UnitPreview';
 
 /**
@@ -40,6 +42,8 @@ export interface MenuActions {
   isMuted(): boolean;
   toggleFullscreen(): void;
   resetProgress(): void;
+  /** Rewarded-реклама за кредиты (и гемы за каждую десятую) */
+  watchAd(): Promise<void>;
 }
 
 type Tab = 'play' | 'squad' | 'shop' | 'settings';
@@ -114,16 +118,34 @@ export class MainMenu {
         this.actions.previewMap(id);
         break;
       }
+      case 'diff':
+        s.setDifficulty(d.diff as DifficultyId);
+        break;
+      case 'watchAd':
+        btn.setAttribute('disabled', '');
+        void this.actions.watchAd().then(() => this.render());
+        return;
+      case 'exchange': {
+        const g = Number(d.gems);
+        if (s.exchangeGems(g)) {
+          this.sound.coin();
+          toast(t('exchanged', { gems: g, credits: fmtNum(g * CREDITS_PER_GEM) }), 'gold');
+        } else {
+          this.sound.error();
+          toast(t('notEnoughGems'), 'bad');
+        }
+        break;
+      }
       case 'buyMap': {
         const id = d.map as MapId;
-        const r = s.buyMap(id, MAPS[id].unlockPrice);
+        const r = s.buyMap(id, MAPS[id].unlockPrice, d.gem === '1');
         if (r === 'ok') {
           s.selectMap(id);
           this.sound.upgrade();
           toast(t('mapUnlocked', { map: loc(MAPS[id].name) }), 'gold');
-        } else if (r === 'credits') {
+        } else if (r === 'credits' || r === 'gems') {
           this.sound.error();
-          toast(t('notEnoughCredits'), 'bad');
+          toast(t(r === 'gems' ? 'notEnoughGems' : 'notEnoughCredits'), 'bad');
         }
         break;
       }
@@ -162,13 +184,13 @@ export class MainMenu {
       case 'buyUnit': {
         const u = getUnit(d.unit!);
         if (!u) return;
-        const r = s.buyUnit(u.id);
+        const r = s.buyUnit(u.id, d.gem === '1');
         if (r === 'ok') {
           this.sound.upgrade();
           toast(t('unitUnlocked', { nick: u.nick }), 'gold');
-        } else if (r === 'credits') {
+        } else if (r === 'credits' || r === 'gems') {
           this.sound.error();
-          toast(t('notEnoughCredits'), 'bad');
+          toast(t(r === 'gems' ? 'notEnoughGems' : 'notEnoughCredits'), 'bad');
         }
         break;
       }
@@ -241,12 +263,18 @@ export class MainMenu {
             <div class="font-display font-extrabold tracking-wider text-white leading-none" style="font-size:clamp(26px,4vw,40px)">CLUTCH<span class="text-neon ml-2" style="text-shadow:0 0 22px rgba(0,240,255,.55)">ARENA</span></div>
             <div class="text-xs uppercase tracking-[0.3em] text-slate-400 mt-1">${t('gameSubtitle')}</div>
           </div>
-          <div class="glass rounded-xl px-3 py-2 flex items-center gap-2">
-            <span class="text-gold">${icon('coin')}</span>
-            <div>
-              <div class="text-[10px] uppercase tracking-widest text-slate-400 leading-none">${t('credits')}</div>
-              <div class="font-display text-xl font-extrabold text-gold leading-tight">${fmtNum(s.credits)}</div>
+          <div class="flex flex-col items-end gap-1.5">
+            <div class="flex gap-1.5">
+              <div class="glass rounded-xl px-2.5 py-1.5 flex items-center gap-1.5" title="${t('credits')}">
+                <span class="text-gold">${icon('coin')}</span>
+                <span class="font-display text-lg font-extrabold text-gold leading-none">${fmtNum(s.credits)}</span>
+              </div>
+              <div class="glass rounded-xl px-2.5 py-1.5 flex items-center gap-1.5" title="${t('gems')}">
+                <span class="text-gem">${icon('gem')}</span>
+                <span class="font-display text-lg font-extrabold text-gem leading-none">${fmtNum(s.gems)}</span>
+              </div>
             </div>
+            ${this.adButton()}
           </div>
         </header>
         <nav class="flex gap-1 flex-wrap">
@@ -257,6 +285,18 @@ export class MainMenu {
     const sc = this.el.querySelector('[data-scroll]') as HTMLElement | null;
     if (sc) sc.scrollTop = prevScroll;
     if (this.tab === 'shop') this.mountPreview();
+  }
+
+  /** Кнопка рекламы за кредиты с прогрессом до награды гемами */
+  private adButton(): string {
+    const done = this.save.adProgress;
+    const left = ADS_PER_GEM_REWARD - done;
+    const pct = Math.round((done / ADS_PER_GEM_REWARD) * 100);
+    return `<button class="ad-btn" data-act="watchAd" title="${t('watchAdFor', { n: AD_CREDITS })}">
+      <span class="flex items-center gap-1 font-bold">${icon('tv')} +${AD_CREDITS} <span class="text-gold">${icon('coin')}</span></span>
+      <span class="ad-progress"><i style="width:${pct}%"></i></span>
+      <span class="text-[10px] text-slate-400 whitespace-nowrap">${t('adProgress', { n: left, gems: GEM_REWARD })}</span>
+    </button>`;
   }
 
   private mapCard(id: MapId): string {
@@ -279,6 +319,16 @@ export class MainMenu {
     </button>`;
   }
 
+  /** Прогресс открытия следующей карты: победы на карте по сложностям */
+  private unlockProgress(from: MapId, target: MapId): string {
+    const w = this.save.winsOn(from);
+    const items = DIFFICULTY_ORDER.map((d, i) => {
+      const df = DIFFICULTIES[d];
+      return `<span class="chip" style="color:${df.color}">${loc(df.name)} ${Math.min(w[i], df.unlockWins)}/${df.unlockWins}</span>`;
+    }).join(` <span class="text-[10px] text-slate-500">${t('unlockOr')}</span> `);
+    return `<div class="text-[11px] uppercase tracking-widest text-slate-400 mt-3 mb-1">${t('unlockTitle', { map: loc(MAPS[target].name) })}</div><div class="flex flex-wrap items-center gap-1">${items}</div>`;
+  }
+
   private renderPlay(): string {
     const s = this.save;
     const id = this.mapFocus;
@@ -286,6 +336,12 @@ export class MainMenu {
     const unlocked = s.isMapUnlocked(id);
     const idx = MAP_ORDER.indexOf(id);
     const prev = idx > 0 ? MAPS[MAP_ORDER[idx - 1]] : null;
+    const diff = DIFFICULTIES[s.data.difficulty];
+    const nextId = MAP_ORDER[idx + 1];
+    const diffSeg = DIFFICULTY_ORDER.map((d) => {
+      const df = DIFFICULTIES[d];
+      return `<button class="${d === diff.id ? 'is-on' : ''}" style="${d === diff.id ? `color:${df.color};border-color:${df.color}` : ''}" data-act="diff" data-diff="${d}">${loc(df.name)}</button>`;
+    }).join('');
     const squad = s.data.squad.map((uid) => getUnit(uid)).filter((u): u is NonNullable<typeof u> => !!u);
     const squadSlots = Array.from({ length: SQUAD_SIZE }, (_, i) => {
       const u = squad[i];
@@ -311,10 +367,14 @@ export class MainMenu {
         </div>
         <p class="text-sm text-slate-300 mt-2 leading-relaxed">${loc(m.desc)}</p>
         <div class="grid grid-cols-3 gap-2 mt-3">
-          <div class="stat-box"><span class="k">${t('startMoney')}</span><span class="v money">${fmtMoney(m.startMoney)}</span></div>
+          <div class="stat-box"><span class="k">${t('startMoney')}</span><span class="v money">${fmtMoney(Math.round(m.startMoney * diff.startMoney))}</span></div>
           <div class="stat-box"><span class="k">${t('baseHp')}</span><span class="v hp-good">${m.baseHp}</span></div>
-          <div class="stat-box"><span class="k">${t('waves')}</span><span class="v">${m.waves}</span></div>
+          <div class="stat-box"><span class="k">${t('waves')}</span><span class="v">${totalWaves(m, diff)}</span></div>
         </div>
+        <div class="text-[11px] uppercase tracking-widest text-slate-400 mt-3 mb-1">${t('diffLabel')}</div>
+        <div class="seg diff-seg flex-wrap">${diffSeg}</div>
+        <div class="text-xs mt-1.5" style="color:${diff.color}">${t('diffStats', { hp: +diffHp(diff, m.difficulty).toFixed(2), cr: diff.credits, w: totalWaves(m, diff) })}${diff.gemChance ? ` · <span class="text-gem">${icon('gem')} ${t('diffGems', { p: Math.round(diff.gemChance * 100), n: nightmareGems(m.difficulty) })}</span>` : ''}</div>
+        ${unlocked && nextId && !s.isMapUnlocked(nextId) ? this.unlockProgress(id, nextId) : ''}
         <div class="text-[11px] uppercase tracking-widest text-slate-400 mt-3 mb-1">${t('routes')}</div>
         <div class="flex flex-wrap gap-1">${m.routes.map((r) => `<span class="chip text-neon">${loc(r.name)}${r.fastOnly ? ' ⚡' : ''}</span>`).join('')}</div>
         <div class="text-[11px] uppercase tracking-widest text-slate-400 mt-3 mb-1">${t('enemies')}</div>
@@ -328,8 +388,8 @@ export class MainMenu {
           ${
             unlocked
               ? `<button class="btn btn-primary w-full font-display" style="padding:14px;font-size:20px;letter-spacing:.12em" data-act="start">${icon('sword')} ${t('startMatch').toUpperCase()}</button>`
-              : `<button class="btn btn-gold w-full" style="padding:12px;font-size:16px" data-act="buyMap" data-map="${id}" ${s.data.credits < m.unlockPrice ? 'disabled' : ''}>${icon('lock')} ${t('unlockFor', { price: fmtNum(m.unlockPrice) })}</button>
-                 ${prev ? `<div class="text-xs text-slate-400 text-center mt-2">${t('orWin', { map: loc(prev.name) })}</div>` : ''}`
+              : `<div class="grid grid-cols-[1fr_auto] gap-2"><button class="btn btn-gold w-full" style="padding:12px;font-size:16px" data-act="buyMap" data-map="${id}" ${s.data.credits < m.unlockPrice ? 'disabled' : ''}>${icon('lock')} ${t('unlockFor', { price: fmtNum(m.unlockPrice) })}</button><button class="btn btn-gem" data-act="buyMap" data-map="${id}" data-gem="1" ${s.data.gems < gemPrice(m.unlockPrice) ? 'disabled' : ''}>${icon('gem')} ${gemPrice(m.unlockPrice)}</button></div>
+                 ${prev ? this.unlockProgress(MAP_ORDER[idx - 1], id) : ''}`
           }
         </div>
       </div>`;
@@ -400,11 +460,19 @@ export class MainMenu {
       .join('');
     let action = '';
     if (!owned) {
-      action = `<button class="btn btn-gold w-full" style="padding:12px;font-size:15px" data-act="buyUnit" data-unit="${u.id}" ${s.data.credits < u.price ? 'disabled' : ''}>${icon('coin')} ${t('buy')} · ${fmtNum(u.price)}</button>`;
+      action = `<div class="grid grid-cols-[1fr_auto] gap-2"><button class="btn btn-gold w-full" style="padding:12px;font-size:15px" data-act="buyUnit" data-unit="${u.id}" ${s.data.credits < u.price ? 'disabled' : ''}>${icon('coin')} ${t('buy')} · ${fmtNum(u.price)}</button><button class="btn btn-gem" style="padding:12px 14px" data-act="buyUnit" data-unit="${u.id}" data-gem="1" title="${t('buyGems')}" ${s.data.gems < gemPrice(u.price) ? 'disabled' : ''}>${icon('gem')} ${gemPrice(u.price)}</button></div>`;
     } else {
       action = `<button class="btn ${inSquad ? 'btn-danger' : 'btn-primary'} w-full" style="padding:12px;font-size:15px" data-act="toggleSquad" data-unit="${u.id}">${icon('users')} ${inSquad ? t('removeFromSquad') : t('addToSquad')}</button>`;
     }
+    const packs = GEM_PACKS.map((g) => `<button class="btn btn-gem" data-act="exchange" data-gems="${g}" ${s.data.gems < g ? 'disabled' : ''}>${icon('gem')} ${g} → <span class="text-gold">${fmtNum(g * CREDITS_PER_GEM)}</span></button>`).join('');
     return `
+      <div class="glass rounded-xl p-3 mb-3">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="font-display font-extrabold text-white flex items-center gap-1.5"><span class="text-gem">${icon('gem')}</span>${t('exchange')}</div>
+          <div class="flex gap-1.5 flex-wrap">${packs}</div>
+        </div>
+        <div class="text-[11px] text-slate-400 mt-1.5">${t('exchangeHint')}</div>
+      </div>
       <div class="seg mb-3 flex-wrap">${filters}</div>
       <div class="flex flex-col lg:flex-row gap-3">
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 content-start lg:w-[55%]">${list.map((x) => this.unitCard(x.id, 'shopSel', x.id === u.id)).join('')}</div>

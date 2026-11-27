@@ -1,4 +1,6 @@
 import type { EnemyKind, Loc, MapDef, WaveDef, WaveGroup, WaveTag } from '../types/game';
+import { DIFFICULTIES, diffCount, diffHp } from './difficulty';
+import type { DifficultyDef } from './difficulty';
 
 export const WAVE_NAMES: Record<WaveTag, Loc> = {
   pistol: { ru: 'Пистолетка', en: 'Pistol round' },
@@ -95,8 +97,13 @@ function earlyMixins(n: number, difficulty: number): WaveGroup[] {
   return out;
 }
 
-export function buildWave(n: number, map: MapDef): WaveDef {
-  const boss = isBossWave(n, map.waves);
+export function totalWaves(map: MapDef, diff: DifficultyDef = DIFFICULTIES.normal): number {
+  return map.waves + diff.extraWaves;
+}
+
+export function buildWave(n: number, map: MapDef, diff: DifficultyDef = DIFFICULTIES.normal): WaveDef {
+  const total = totalWaves(map, diff);
+  const boss = isBossWave(n, total);
   const cycle = lateCycle(map.difficulty);
   let tag: WaveTag;
   if (boss) tag = 'boss';
@@ -104,7 +111,7 @@ export function buildWave(n: number, map: MapDef): WaveDef {
   else tag = cycle[(n - EARLY.length - 1) % cycle.length];
 
   const late = Math.max(0, n - 9);
-  const countMul = (1 + late * 0.13) * (1 + (map.difficulty - 1) * 0.07);
+  const countMul = (1 + late * 0.13) * (1 + (map.difficulty - 1) * 0.07) * diffCount(diff, map.difficulty);
   const intervalMul = 1 / (1 + late * 0.05);
   const scale = (gr: WaveGroup, k = 1, minCount = 1): WaveGroup => ({
     ...gr,
@@ -130,7 +137,7 @@ export function buildWave(n: number, map: MapDef): WaveDef {
   }
 
   // Эскорт финального босса
-  if (boss && n === map.waves && n > 10) {
+  if (boss && n === total && n > 10) {
     groups.push(g('screamer', 2, 4, 10), g('ddos', 3, 2.5, 12), g('smoker', 2, 4, 14));
     if (map.difficulty >= 3) groups.push(g('afk', 2, 3, 1), g('flasher', 2, 2.4, 8));
     if (map.difficulty >= 4) groups.push(g('cheater', 2, 2.2, 14), g('toxic', 2, 2.2, 16), g('spinbot', 1, 1, 26));
@@ -142,14 +149,14 @@ export function buildWave(n: number, map: MapDef): WaveDef {
     name: WAVE_NAMES[tag],
     groups,
     boss,
-    hpMul: waveHpMul(n, map),
+    hpMul: waveHpMul(n, map) * diffHp(diff, map.difficulty),
     bonus: waveBonus(n),
   };
 }
 
-export function buildAllWaves(map: MapDef): WaveDef[] {
+export function buildAllWaves(map: MapDef, diff: DifficultyDef = DIFFICULTIES.normal): WaveDef[] {
   const out: WaveDef[] = [];
-  for (let i = 1; i <= map.waves; i++) out.push(buildWave(i, map));
+  for (let i = 1; i <= totalWaves(map, diff); i++) out.push(buildWave(i, map, diff));
   return out;
 }
 

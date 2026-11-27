@@ -1,6 +1,7 @@
 // Общие типы игры: юниты, оружие, враги, волны, карты, слоты, мета-прогрессия.
 
 export type Lang = 'ru' | 'en';
+export type DifficultyId = 'easy' | 'normal' | 'hard' | 'veryhard' | 'nightmare';
 export interface Loc {
   ru: string;
   en: string;
@@ -379,6 +380,15 @@ export interface MapDef {
 export interface SaveData {
   version: 1;
   credits: number;
+  /** Премиальная валюта: 1 гем = 100 кредитов */
+  gems: number;
+  /** Всего просмотрено рекламы за награду (каждые 10 — гемы) */
+  adsWatched: number;
+  /** Обучение пройдено или пропущено */
+  tutorialDone: boolean;
+  difficulty: DifficultyId;
+  /** Победы на картах по сложностям (индекс — DIFFICULTY_ORDER) */
+  winsBy: Partial<Record<MapId, number[]>>;
   owned: string[];
   squad: string[];
   unlockedMaps: MapId[];
@@ -400,5 +410,6 @@ export interface MatchResult {
   kills: number;
   credits: number;
   hpLeft: number;
-  unlockedNext: MapId | null;
+  difficulty: DifficultyId;
+  gems: number;
 }

@@ -14,6 +14,9 @@ import type { BuiltMap } from './engine/MapBuilder';
 import { LabelLayer } from './ui/Labels';
 import { MainMenu } from './ui/MainMenu';
 import { GameHUD } from './ui/GameHUD';
+import { Tutorial } from './ui/Tutorial';
+import { TUTORIAL_CREDITS, TUTORIAL_GEMS } from './data/economy';
+import { DIFFICULTIES } from './data/difficulty';
 import { adSimulation, isModalOpen, openModal, toast } from './ui/Overlay';
 import type { ModalHandle } from './ui/Overlay';
 import { icon } from './ui/icons';
@@ -33,6 +36,7 @@ class App {
   private labels!: LabelLayer;
   private menu!: MainMenu;
   private hud: GameHUD | null = null;
+  private tutorial: Tutorial | null = null;
   private game: Game | null = null;
   private built: BuiltMap | null = null;
   private builtId: MapId | null = null;
@@ -84,9 +88,12 @@ class App {
         this.save.reset();
         this.sound.setMuted(this.save.data.muted);
       },
+      watchAd: async () => {
+        if (!(await this.rewardedAd(true))) toast(t('adUnavailable'), 'bad');
+      },
     });
 
-    this.cam.onTap = (x, y) => this.game?.tap(x, y);
+    this.cam.onTap = (x, y, touch) => this.game?.tap(x, y, touch);
     this.cam.onHover = (x, y) => this.game?.hover(x, y);
 
     window.addEventListener('resize', () => this.scene.resize());
@@ -102,7 +109,9 @@ class App {
       }
     });
 
-    this.showMenu();
+    // Первый запуск: сразу в бой с обучением (хук), меню — потом
+    if (!this.save.data.tutorialDone) this.startMatch('bazaar', true);
+    else this.showMenu();
     const loader = document.getElementById('boot-loader');
     if (loader) {
       loader.classList.add('is-done');
@@ -142,6 +151,12 @@ class App {
   /* ------------------------------- Меню ---------------------------------- */
 
   private teardownMatch(): void {
+    // Вышли из матча посреди обучения — больше его не навязываем
+    if (this.tutorial?.active) {
+      this.tutorial.dispose();
+      this.save.skipTutorial();
+    }
+    this.tutorial = null;
     this.closePause();
     this.game?.dispose();
     this.game = null;
@@ -163,7 +178,7 @@ class App {
 
   /* ------------------------------- Матч ---------------------------------- */
 
-  private startMatch(id: MapId): void {
+  private startMatch(id: MapId, tutorial = false): void {
     this.teardownMatch();
     this.menu.hide();
     this.loadMap(id, true);
@@ -174,7 +189,7 @@ class App {
       selectionChanged: () => this.hud?.onSelectionChanged(),
       spotPicked: () => this.hud?.refresh(),
       ended: (r) => this.onEnded(r),
-    });
+    }, DIFFICULTIES[tutorial ? 'easy' : this.save.data.difficulty]);
     this.hud = new GameHUD(this.uiRoot, this.game, {
       togglePause: () => this.togglePause(),
       toggleCamera: () => this.cam.toggleMode(),
@@ -200,7 +215,37 @@ class App {
     this.cam.inputEnabled = true;
     this.sound.ensure();
     this.sdk.gameplayStart();
-    toast(t('matchStart', { map: loc(map.name) }), 'info', 3200);
+    toast(`${t('matchStart', { map: loc(map.name) })} · ${loc(this.game.diff.name)}`, 'info', 3200);
+    if (tutorial) {
+      this.tutorial = new Tutorial(this.uiRoot, this.game, {
+        finish: (skipped) => {
+          this.tutorial = null;
+          if (skipped) {
+            this.save.skipTutorial();
+            return;
+          }
+          this.save.completeTutorial(TUTORIAL_CREDITS, TUTORIAL_GEMS);
+          this.sound.coin();
+          toast(`+${TUTORIAL_CREDITS} ${t('credits')} · +${TUTORIAL_GEMS} ${t('gems')}`, 'gold', 3500);
+        },
+      });
+    }
+  }
+
+  /**
+   * Любая rewarded-реклама: засчитывается в прогресс гемов (каждая десятая даёт гемы).
+   * withCredits — реклама из меню, за неё сразу кредиты.
+   */
+  private async rewardedAd(withCredits: boolean): Promise<boolean> {
+    const ok = await this.sdk.showRewarded();
+    if (!ok) return false;
+    const r = this.save.recordAd(withCredits);
+    if (r.credits) toast(t('adReward', { n: r.credits }), 'gold');
+    if (r.gems) {
+      toast(t('gemReward', { n: r.gems }), 'gold', 3500);
+      this.sound.upgrade();
+    } else if (r.credits) this.sound.coin();
+    return true;
   }
 
   private async airdrop(): Promise<void> {
@@ -210,17 +255,18 @@ class App {
       return;
     }
     this.sdk.gameplayStop();
-    const ok = await this.sdk.showRewarded();
+    const ok = await this.rewardedAd(false);
     if (this.game === g && g.phase !== 'ended') this.sdk.gameplayStart();
     if (ok && this.game === g) g.grantAirdrop();
     else if (!ok) toast(t('adUnavailable'), 'bad');
   }
 
   private onEnded(r: MatchResult): void {
+    // Дошли до конца матча — обучение засчитываем с наградой
+    if (this.tutorial?.active) this.tutorial.close(false);
     this.sdk.gameplayStop();
     this.cam.inputEnabled = false;
-    const newMap = r.unlockedNext && !this.save.isMapUnlocked(r.unlockedNext) ? r.unlockedNext : null;
-    const record = this.save.recordMatch(r);
+    const { record, unlocked: newMap } = this.save.recordMatch(r);
     const nextId = r.victory ? MAP_ORDER[MAP_ORDER.indexOf(r.mapId) + 1] : undefined;
     let doubled = false;
     const stat = (k: string, v: string, cls = '') =>
@@ -238,6 +284,7 @@ class App {
             <div class="stat-box"><span class="k">${t('creditsEarned')}</span><span class="v text-gold" data-credits>+${fmtNum(r.credits)}</span></div>
           </div>
           ${record ? `<div class="mt-3 text-gold font-bold">${icon('star')} ${t('newRecord')}</div>` : ''}
+          ${r.gems ? `<div class="mt-2 text-gem font-bold">${icon('gem')} ${t('gemsDropped', { n: r.gems })}</div>` : ''}
           ${newMap ? `<div class="mt-2 text-neon font-bold">${icon('map')} ${t('mapUnlocked', { map: loc(MAPS[newMap].name) })}</div>` : ''}`,
         buttons: [
           {
@@ -249,7 +296,7 @@ class App {
               if (doubled) return;
               const btn = document.getElementById('btn-double') as HTMLButtonElement | null;
               if (btn) btn.disabled = true;
-              void this.sdk.showRewarded().then((ok) => {
+              void this.rewardedAd(false).then((ok) => {
                 if (ok) {
                   doubled = true;
                   this.save.addCredits(r.credits);
@@ -372,6 +419,7 @@ class App {
     this.scene.render();
     this.labels.update(this.scene.camera, dt);
     this.hud?.update(dt);
+    this.tutorial?.update(dt);
     this.menu.update(dt);
     requestAnimationFrame((n) => this.frame(n));
   }

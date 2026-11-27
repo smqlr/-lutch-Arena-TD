@@ -9,6 +9,7 @@
   --color-gold: #f59e0b;
   --color-danger: #ef4444;
   --color-ok: #22c55e;
+  --color-gem: #c084fc;
   --font-display: "Bahnschrift", "Segoe UI", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
 }
 
@@ -221,6 +222,152 @@ svg {
 .btn-gold:hover {
   background: linear-gradient(180deg, #fcc45a, #e69410);
   border-color: #fcd34d;
+}
+
+.btn-gem {
+  background: rgba(192, 132, 252, 0.14);
+  border-color: rgba(192, 132, 252, 0.6);
+  color: #e9d5ff;
+  font-weight: 700;
+}
+
+.btn-gem:hover {
+  background: rgba(192, 132, 252, 0.26);
+  border-color: #c084fc;
+}
+
+.btn-gem svg {
+  color: #c084fc;
+}
+
+/* ------------------------------ Обучение -------------------------------- */
+
+.tut-bubble {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 72px;
+  width: min(440px, calc(100vw - 16px));
+  padding: 12px 14px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 240, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.15), 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 26px rgba(0, 240, 255, 0.18);
+  z-index: 30;
+  animation: tut-in 0.25s ease-out;
+}
+
+.tut-text {
+  color: #e5e7eb;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.tut-text b {
+  color: #00f0ff;
+}
+
+.tut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tut-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.tut-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2a3048;
+}
+
+.tut-dots i.on {
+  background: #00f0ff;
+}
+
+.tut-skip {
+  background: none;
+  border: 0;
+  color: #6b7390;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.tut-target {
+  position: relative;
+  z-index: 5;
+  animation: tut-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes tut-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px #00f0ff, 0 0 14px rgba(0, 240, 255, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 4px #00f0ff, 0 0 26px rgba(0, 240, 255, 0.9);
+  }
+}
+
+@keyframes tut-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* Кнопка рекламы за кредиты с прогрессом до награды гемами */
+.ad-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 150px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.18), rgba(34, 197, 94, 0.08));
+  color: #dcfce7;
+  font: 600 13px/1.1 "Segoe UI", Roboto, system-ui, sans-serif;
+  cursor: pointer;
+  transition: transform 0.08s, background 0.15s;
+}
+
+.ad-btn:hover {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.28), rgba(34, 197, 94, 0.12));
+}
+
+.ad-btn:active {
+  transform: scale(0.98);
+}
+
+.ad-btn[disabled] {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.ad-progress {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.ad-progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #a855f7, #c084fc);
 }
 
 .btn-danger {
@@ -1094,4 +1241,109 @@ svg {
     font-size: 15px;
     bottom: 3px;
   }
+}
+
+@media (max-width: 760px), (max-height: 520px) {
+  .btn {
+    padding: 6px 9px;
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .btn-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .hud-cluster .btn {
+    min-height: 30px;
+  }
+
+  .hud-cluster [data-act="start"] {
+    padding: 6px 10px !important;
+  }
+
+  .hud-cluster [data-act="speed"] {
+    min-width: 34px !important;
+  }
+
+  .stat-box {
+    min-width: 46px;
+    padding: 2px 6px;
+  }
+
+  .stat-box .k {
+    font-size: 9px;
+  }
+
+  .stat-box .v {
+    font-size: 13px;
+  }
+
+  [data-inspector] .btn,
+  [data-picker] .btn {
+    padding: 7px 8px !important;
+    font-size: 12px !important;
+  }
+
+  [data-inspector] .stat-box .v {
+    font-size: 13px;
+  }
+
+  [data-inspector],
+  [data-picker] {
+    padding: 10px !important;
+    font-size: 12px;
+  }
+
+  [data-picker] .unit-card {
+    min-height: 44px !important;
+    padding: 6px 8px;
+  }
+
+  .nav-tab {
+    padding: 7px 9px;
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .menu-shell [data-act="start"] {
+    padding: 10px !important;
+    font-size: 16px !important;
+  }
+
+  .ad-btn {
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .tut-text {
+    font-size: 13px;
+  }
+
+  .tut-bubble {
+    padding: 9px 11px 8px;
+  }
+
+  .toast {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
+
+@media (max-height: 520px) and (min-width: 521px) {
+  .hud-side {
+    width: 250px;
+  }
+}
+
+body.tut-on [data-next],
+body.tut-on #toast-root .toast.info {
+  display: none !important;
 }

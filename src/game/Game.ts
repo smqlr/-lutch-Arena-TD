@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import type { EnemyDef, EnemyKind, Loc, MapDef, MatchResult, TargetPriority, TierIndex, UnitDef, Vec3T, WaveDef } from '../types/game';
-import { MAP_ORDER, PRIORITIES } from '../types/game';
+import { PRIORITIES } from '../types/game';
 import { ENEMIES } from '../data/enemies';
 import { buildAllWaves } from '../data/waves';
+import { DIFFICULTIES, nightmareGems } from '../data/difficulty';
+import type { DifficultyDef } from '../data/difficulty';
 import type { FireZoneVis, SceneManager, SmokeVis } from '../engine/SceneManager';
 import type { SoundFX } from '../engine/SoundFX';
 import type { BuiltMap } from '../engine/MapBuilder';
@@ -196,6 +198,8 @@ export class Game {
   picked: SpotProbe | null = null;
   /** Место под курсором мыши */
   hoverSpot: SpotProbe | null = null;
+  /** Касание: первый тап показывает место и радиус, второй тап по нему ставит бойца */
+  touchSpot: SpotProbe | null = null;
 
   private scene: SceneManager;
   private sound: SoundFX;
@@ -224,7 +228,10 @@ export class Game {
   private v2 = new THREE.Vector3();
   private v3 = new THREE.Vector3();
 
-  constructor(scene: SceneManager, sound: SoundFX, built: BuiltMap, map: MapDef, squad: UnitDef[], labels: LabelLayer, cb: GameCallbacks) {
+  readonly diff: DifficultyDef;
+
+  constructor(scene: SceneManager, sound: SoundFX, built: BuiltMap, map: MapDef, squad: UnitDef[], labels: LabelLayer, cb: GameCallbacks, diff: DifficultyDef = DIFFICULTIES.normal) {
+    this.diff = diff;
     this.scene = scene;
     this.sound = sound;
     this.built = built;
@@ -232,8 +239,8 @@ export class Game {
     this.squad = squad;
     this.labels = labels;
     this.cb = cb;
-    this.waves = buildAllWaves(map);
-    this.money = map.startMoney;
+    this.waves = buildAllWaves(map, diff);
+    this.money = Math.round(map.startMoney * diff.startMoney);
     this.hp = this.maxHp = map.baseHp;
     this.routes = map.routes.map((r) => new RoutePath(r));
     scene.world.add(this.root);
@@ -365,6 +372,7 @@ export class Game {
       return;
     }
     this.placing = this.placing?.id === unit.id ? null : unit;
+    this.touchSpot = null;
     this.selected = null;
     this.picked = null;
     this.cb.selectionChanged();
@@ -374,6 +382,7 @@ export class Game {
 
   cancelPlacement(): void {
     this.placing = null;
+    this.touchSpot = null;
     this.picked = null;
     this.cb.spotPicked();
     this.cb.selectionChanged();
@@ -415,6 +424,7 @@ export class Game {
     this.placing = null;
     this.picked = null;
     this.hoverSpot = null;
+    this.touchSpot = null;
     this.cb.spotPicked();
     this.sound.place();
     this.scene.shockwave(tw.pos, 2.2, ROLE_COLORS[unit.role], 0.6);
@@ -439,6 +449,7 @@ export class Game {
     this.selected = null;
     this.picked = null;
     this.placing = null;
+    this.touchSpot = null;
     this.cb.spotPicked();
     this.cb.selectionChanged();
   }
@@ -542,18 +553,32 @@ export class Game {
     return best;
   }
 
-  tap(x: number, y: number): void {
+  tap(x: number, y: number, touch = false): void {
     if (this.phase === 'ended') return;
     this.setRay(x, y);
     const tw = this.rayTower();
     if (this.placing) {
       if (tw) {
         this.placing = null;
+        this.touchSpot = null;
         this.select(tw);
         return;
       }
       const spot = this.placement.probeRay(this.raycaster, this.towerPositions());
       if (!spot) return;
+      if (touch) {
+        // На телефоне нет наведения: первый тап — превью места и дальности, второй тап рядом — установка
+        const prev = this.touchSpot;
+        if (spot.ok && prev?.ok && prev.pos.distanceTo(spot.pos) < 1.3) {
+          this.touchSpot = null;
+          this.placeAt(prev.pos, this.placing);
+        } else {
+          this.touchSpot = spot;
+          if (!spot.ok) this.sound.error();
+          else this.sound.click();
+        }
+        return;
+      }
       if (spot.ok) this.placeAt(spot.pos, this.placing);
       else {
         this.cb.toast(this.spotFailText(spot.reason), 'bad');
@@ -662,7 +687,7 @@ export class Game {
     // Босс растёт по волнам мягче обычных врагов: позиции делятся между маршрутами,
     // и в каждой точке его достают лишь 1–3 бойца
     if (kind === 'spinbot') hpMul = 1 + (hpMul - 1) * 0.65;
-    const speedMul = 1 + 0.012 * Math.max(0, this.waveIndex - 1);
+    const speedMul = (1 + 0.012 * Math.max(0, this.waveIndex - 1)) * this.diff.speed;
     const e = new Enemy(def, route, hpMul, speedMul);
     this.placeEnemy(e);
     this.root.add(e.model.root);
@@ -1315,9 +1340,8 @@ export class Game {
     else this.sound.defeat();
     const cleared = victory ? this.waves.length : Math.max(0, this.waveIndex - 1);
     const d = this.map.difficulty;
-    const credits = cleared * (10 + 2 * d) + (victory ? 150 + 50 * d : 0) + Math.floor(this.kills / 5);
-    const idx = MAP_ORDER.indexOf(this.map.id);
-    const next = victory && idx >= 0 && idx < MAP_ORDER.length - 1 ? MAP_ORDER[idx + 1] : null;
+    const credits = Math.round((cleared * (10 + 2 * d) + (victory ? 150 + 50 * d : 0) + Math.floor(this.kills / 5)) * this.diff.credits);
+    const gems = victory && Math.random() < this.diff.gemChance ? nightmareGems(d) : 0;
     this.cb.ended({
       mapId: this.map.id,
       victory,
@@ -1326,7 +1350,8 @@ export class Game {
       kills: this.kills,
       credits,
       hpLeft: this.hp,
-      unlockedNext: next,
+      difficulty: this.diff.id,
+      gems,
     });
   }
 
@@ -1350,14 +1375,16 @@ export class Game {
     }
 
     // Курсор установки: место под мышью в режиме установки или место, выбранное тапом
-    const spot = this.placing ? this.hoverSpot : this.picked;
+    const preview = this.hoverSpot ?? this.touchSpot;
+    const spot = this.placing ? preview : this.picked;
     if (spot && this.phase !== 'ended') {
       const color = this.placing ? ROLE_COLORS[this.placing.role] : 0x00f0ff;
       this.cursor.show(spot.pos, spot.ok, color);
       this.cursor.update(dt);
       this.cursorLabelPos.copy(spot.pos).setY(spot.pos.y + 1.15);
       const star = spot.elevated && this.map.highGround.length ? ' <i>★</i>' : '';
-      this.labels.setHtml('cursor', spot.ok ? `${loc(spot.name)}${star}` : this.spotFailText(spot.reason));
+      const again = this.placing && spot === this.touchSpot && !this.hoverSpot ? ` · ${t('tapAgain')}` : '';
+      this.labels.setHtml('cursor', spot.ok ? `${loc(spot.name)}${star}${again}` : this.spotFailText(spot.reason));
       this.labels.setClass('cursor', spot.ok ? 'lbl-slot' : 'lbl-slot is-bad');
       this.labels.setVisible('cursor', true);
     } else {
@@ -1366,8 +1393,8 @@ export class Game {
     }
 
     // Кольцо дальности
-    if (this.placing && this.hoverSpot?.ok) {
-      this.scene.showRange(this.hoverSpot.pos, this.previewRange(this.placing, this.hoverSpot.elevated), ROLE_COLORS[this.placing.role]);
+    if (this.placing && preview?.ok) {
+      this.scene.showRange(preview.pos, this.previewRange(this.placing, preview.elevated), ROLE_COLORS[this.placing.role]);
     } else if (this.selected) {
       this.scene.showRange(this.selected.pos, this.selected.stats.range, ROLE_COLORS[this.selected.def.role]);
     } else {
