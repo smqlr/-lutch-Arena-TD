@@ -3,7 +3,7 @@ import type { Lang, MapId, MatchResult, UnitDef } from './types/game';
 import { MAP_ORDER } from './types/game';
 import { MAPS } from './data/maps';
 import { getUnit } from './data/units';
-import { YandexSDK } from './sdk/YandexSDK';
+import { createPlatform } from './sdk';
 import { SaveManager } from './game/Save';
 import { Game } from './game/Game';
 import { SoundFX } from './engine/SoundFX';
@@ -28,7 +28,7 @@ import { fmtNum, loc, setLang, t } from './i18n';
  */
 
 class App {
-  private sdk = new YandexSDK();
+  private platform = createPlatform();
   private save!: SaveManager;
   private sound = new SoundFX();
   private scene!: SceneManager;
@@ -47,11 +47,11 @@ class App {
   private uiRoot!: HTMLElement;
 
   async boot(): Promise<void> {
-    await this.sdk.init();
-    this.save = new SaveManager(this.sdk);
+    await this.platform.init();
+    this.save = new SaveManager(this.platform);
     await this.save.syncCloud();
-    // Основной язык — английский; русский включается в настройках (выбор запоминается)
-    const lang: Lang = this.save.data.lang ?? 'en';
+    // Основной язык — английский (или язык пользователя на портале); выбор в настройках запоминается
+    const lang: Lang = this.save.data.lang ?? this.platform.preferredLang() ?? 'en';
     setLang(lang);
     document.title = 'Clutch Arena TD';
     this.sound.setMuted(this.save.data.muted);
@@ -62,18 +62,22 @@ class App {
     this.cam = new CameraController(this.scene.camera, canvas);
     this.labels = new LabelLayer(document.getElementById('labels-layer')!);
 
-    this.sdk.setFallbackAd(adSimulation);
-    this.sdk.onAdOpen = () => {
+    this.platform.setFallbackAd(adSimulation);
+    this.platform.onAdOpen = () => {
       this.adPaused = true;
+      this.cam.resetInput();
       this.sound.suspend('ad');
     };
-    this.sdk.onAdClose = () => {
+    this.platform.onAdClose = () => {
       this.adPaused = false;
       this.sound.resume('ad');
     };
+    // Глобальная настройка звука портала (CrazyGames)
+    this.platform.onPlatformMute = (m) => (m ? this.sound.suspend('platform') : this.sound.resume('platform'));
+    if (this.platform.platformMuted()) this.sound.suspend('platform');
 
     this.menu = new MainMenu(this.uiRoot, this.save, this.sound, {
-      startMatch: (id) => this.startMatch(id),
+      startMatch: (id) => void this.playAfterBreak(id),
       previewMap: (id) => this.previewMenuMap(id),
       setLang: (l) => {
         setLang(l);
@@ -83,7 +87,8 @@ class App {
       },
       toggleMute: () => this.toggleMute(),
       isMuted: () => this.sound.muted,
-      toggleFullscreen: () => void this.sdk.toggleFullscreen(),
+      toggleFullscreen: () => void this.platform.toggleFullscreen(),
+      canFullscreen: () => !this.platform.hostFullscreen,
       resetProgress: () => {
         this.save.reset();
         this.sound.setMuted(this.save.data.muted);
@@ -117,7 +122,7 @@ class App {
       loader.classList.add('is-done');
       window.setTimeout(() => loader.remove(), 600);
     }
-    this.sdk.ready();
+    this.platform.ready();
     requestAnimationFrame((n) => this.frame(n));
   }
 
@@ -169,7 +174,7 @@ class App {
 
   private showMenu(): void {
     this.teardownMatch();
-    this.sdk.gameplayStop();
+    this.platform.gameplayStop();
     this.menu.syncFocus();
     this.loadMap(this.menu.focusedMap);
     this.frameMenuCamera(this.menu.focusedMap);
@@ -214,7 +219,7 @@ class App {
     this.cam.reset();
     this.cam.inputEnabled = true;
     this.sound.ensure();
-    this.sdk.gameplayStart();
+    this.platform.gameplayStart();
     toast(`${t('matchStart', { map: loc(map.name) })} · ${loc(this.game.diff.name)}`, 'info', 3200);
     if (tutorial) {
       this.tutorial = new Tutorial(this.uiRoot, this.game, {
@@ -237,7 +242,7 @@ class App {
    * withCredits — реклама из меню, за неё сразу кредиты.
    */
   private async rewardedAd(withCredits: boolean): Promise<boolean> {
-    const ok = await this.sdk.showRewarded();
+    const ok = await this.platform.showRewarded();
     if (!ok) return false;
     const r = this.save.recordAd(withCredits);
     if (r.credits) toast(t('adReward', { n: r.credits }), 'gold');
@@ -254,9 +259,9 @@ class App {
       toast(t('airdropLimit'), 'bad');
       return;
     }
-    this.sdk.gameplayStop();
+    this.platform.gameplayStop();
     const ok = await this.rewardedAd(false);
-    if (this.game === g && g.phase !== 'ended') this.sdk.gameplayStart();
+    if (this.game === g && g.phase !== 'ended') this.platform.gameplayStart();
     if (ok && this.game === g) g.grantAirdrop();
     else if (!ok) toast(t('adUnavailable'), 'bad');
   }
@@ -264,7 +269,8 @@ class App {
   private onEnded(r: MatchResult): void {
     // Дошли до конца матча — обучение засчитываем с наградой
     if (this.tutorial?.active) this.tutorial.close(false);
-    this.sdk.gameplayStop();
+    this.platform.gameplayStop();
+    if (r.victory) this.platform.happyTime();
     this.cam.inputEnabled = false;
     const { record, unlocked: newMap } = this.save.recordMatch(r);
     const nextId = r.victory ? MAP_ORDER[MAP_ORDER.indexOf(r.mapId) + 1] : undefined;
@@ -311,9 +317,9 @@ class App {
               });
             },
           },
-          { label: t('retry'), kind: 'default', onClick: () => void this.afterMatch(() => this.startMatch(r.mapId)) },
+          { label: t('retry'), kind: 'default', onClick: () => void this.afterMatch(() => void this.playAfterBreak(r.mapId)) },
           ...(nextId && this.save.isMapUnlocked(nextId)
-            ? [{ label: `${t('nextMap')} →`, kind: 'primary' as const, onClick: () => void this.afterMatch(() => this.startMatch(nextId)) }]
+            ? [{ label: `${t('nextMap')} →`, kind: 'primary' as const, onClick: () => void this.afterMatch(() => void this.playAfterBreak(nextId)) }]
             : []),
           { label: t('exitMenu'), kind: r.victory && nextId ? 'ghost' : 'primary', onClick: () => void this.afterMatch(() => this.showMenu()) },
         ],
@@ -321,10 +327,17 @@ class App {
     }, 900);
   }
 
-  /** Межматчевая реклама (не чаще раза в 2 минуты), затем переход */
+  /** Межматчевая реклама в естественной паузе (CrazyGames: midgame; частоту ограничивает SDK), затем переход */
   private async afterMatch(next: () => void): Promise<void> {
-    await this.sdk.showInterstitial();
+    await this.platform.showInterstitial();
     next();
+  }
+
+  /** Старт матча из меню или после итогов: на Poki перед началом геймплея — commercialBreak */
+  private async playAfterBreak(id: MapId): Promise<void> {
+    this.platform.gameplayStop();
+    await this.platform.breakBeforePlay();
+    this.startMatch(id);
   }
 
   /* ------------------------------- Пауза --------------------------------- */
@@ -339,7 +352,7 @@ class App {
     if (this.paused || !this.game) return;
     this.paused = true;
     this.cam.resetInput();
-    this.sdk.gameplayStop();
+    this.platform.gameplayStop();
     const muted = this.sound.muted;
     this.pauseModal = openModal({
       title: t('pause'),
@@ -372,7 +385,7 @@ class App {
         this.pauseModal = null;
         if (this.paused) {
           this.paused = false;
-          if (this.game && this.game.phase !== 'ended') this.sdk.gameplayStart();
+          if (this.game && this.game.phase !== 'ended') this.platform.gameplayStart();
         }
       },
     });

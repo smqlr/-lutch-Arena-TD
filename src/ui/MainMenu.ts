@@ -41,6 +41,8 @@ export interface MenuActions {
   toggleMute(): boolean;
   isMuted(): boolean;
   toggleFullscreen(): void;
+  /** Своя кнопка полноэкранного режима (на порталах её даёт площадка) */
+  canFullscreen(): boolean;
   resetProgress(): void;
   /** Rewarded-реклама за кредиты (и гемы за каждую десятую) */
   watchAd(): Promise<void>;
@@ -537,10 +539,10 @@ export class MainMenu {
           <div class="flex items-center gap-2 text-sm">${muted ? icon('mute') : icon('sound')} ${t('sound')}</div>
           <button class="btn ${muted ? '' : 'is-on'}" data-act="mute">${muted ? t('off') : t('on')}</button>
         </div>
-        <div class="flex items-center justify-between gap-3">
+        ${this.actions.canFullscreen() ? `<div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 text-sm">${icon('fullscreen')} ${t('fullscreen')}</div>
           <button class="btn" data-act="fullscreen">${icon('fullscreen')}</button>
-        </div>
+        </div>` : ''}
       </div>
       <div class="glass rounded-xl p-4 mt-3">
         <div class="font-display font-extrabold text-white mb-2">${icon('info')} ${t('howToPlay')}</div>

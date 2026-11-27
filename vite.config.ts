@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 
-// base: './' — Яндекс Игры отдают сборку из вложенной папки, поэтому все пути относительные.
+// base: './' — порталы (CrazyGames, Poki) и GitHub Pages отдают сборку из вложенной папки, поэтому все пути относительные.
 export default defineConfig({
   base: './',
   plugins: [tailwindcss()],

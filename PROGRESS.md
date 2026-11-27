@@ -3,16 +3,23 @@
 ТЗ: `C:\Users\Ersultan\Downloads\claude_code_cs2_td_prompt.md` (основа) и `C:\Users\Ersultan\Downloads\claude_code.md`
 (редизайн юнитов, 6 новых врагов, правила волн) + концепт-арт владельца «Юниты и враги»;
 `claude_code_8.md` (8 новых врагов + 3 спавна способностей) + концепт-арт «Новые противники».
-Стек: TypeScript + Vite 6 + Three.js 0.175 + Tailwind 4 (`@tailwindcss/vite`) + Web Audio, под Яндекс Игры.
+Стек: TypeScript + Vite 6 + Three.js 0.175 + Tailwind 4 (`@tailwindcss/vite`) + Web Audio, под порталы CrazyGames и Poki.
 
 ## Статус: игра собрана и проверена
 - `npm run dev` — локальный запуск (http://localhost:5173)
 - `npm run build` — `tsc --noEmit` + сборка в `dist/` (пути относительные, `base: './'`)
 - `npm run preview` — локальный запуск продакшен-сборки из `dist/` (http://localhost:4173)
-- Готовый архив для Яндекс Игр: `release/clutch-arena-td-yandex.zip` (index.html в корне, пути через `/`).
-  После изменений пересобрать (`npm run build`) и упаковать **содержимое** `dist/` заново через .NET ZipFile:
-  `Compress-Archive` из Windows PowerShell 5.1 пишет пути с `\`, и на сервере такой архив распаковывается неправильно.
-  SDK подгружается сам (`/sdk.js`) только на доменах Яндекса или с параметром `?ysdk=1`.
+- Сборки для порталов: `npm run build:crazygames` → `dist-crazygames/`, `npm run build:poki` → `dist-poki/`;
+  `npm run release` — обе сборки и архивы `release/clutch-arena-td-crazygames.zip` и `-poki.zip`
+  (`scripts/pack.mjs`: index.html в корне, пути через `/`, без зависимостей — работает и в Windows).
+  `npm run build` — обычный сайт без SDK (GitHub Pages): rewarded-реклама симулируется окном с отсчётом.
+- Реклама (`src/sdk/`): общий слой `Platform` + `CrazyGamesPlatform` (SDK v3: midgame после итогов матча, rewarded,
+  loading/gameplay, happytime на победе, глобальный звук портала, облако через data-модуль с записью не чаще 30 с),
+  `PokiPlatform` (SDK v2: commercialBreak перед каждым стартом матча, rewardedBreak, gameLoadingFinished,
+  gameplay; на localhost — debug-режим), `WebPlatform`. Площадка — режим сборки (`vite build --mode`), чужие SDK
+  в сборку не попадают; в dev — параметр `?platform=crazygames|poki`. С блокировщиком игра работает без наград за рекламу.
+  На порталах своя кнопка полноэкранного режима скрыта. API сверены по типам `@poki/sdk` (официальный пакет Poki)
+  и обёрткам CrazyGames SDK v3 из npm; проверено в браузере на моках SDK.
 - В PowerShell с запретом скриптов запускать через `npm.cmd` / `npx.cmd`.
 
 ## Решение по IP
@@ -20,7 +27,7 @@
 Базар (≈Mirage), Цитадель Дюн (≈Dust 2), Старый квартал (≈Inferno), Реактор (≈Nuke), Развязка (≈Overpass).
 Оружие названо общими словами. Все 30 юнитов носят пародийные («исковерканные») ники реальных про-игроков,
 подобранные под их реальные роли (по желанию владельца проекта). Внутренние `id` юнитов прежние: меняется только `nick`,
-поэтому сохранения игроков совместимы. Риск для модерации Яндекса: пародии на реальных людей и цвета джерси «под команды».
+поэтому сохранения игроков совместимы. Риск для модерации порталов: пародии на реальных людей и цвета джерси «под команды».
 
 ## Структура
 - `src/types/game.ts` (в т. ч. `UnitLook`), `src/i18n.ts` (RU/EN)
@@ -42,9 +49,9 @@
     `TowerMarker` (кольцо роли под бойцом + хит-бокс) и `PlacementCursor` (курсор установки)
   - `MapBuilder.ts` помечает меши (`userData.prop`/`route`) и отдаёт `placeMeshes`/`posts` для поиска места
   - Textures, MapBuilder, SceneManager, CameraController (тактическая + свободный полёт по XYZ), SoundFX
-- `src/game/` — Game (логика матча), Placement (свободная установка), RoutePath, Save (localStorage + облако Яндекса)
+- `src/game/` — Game (логика матча), Placement (свободная установка), RoutePath, Save (localStorage + облако CrazyGames)
 - `src/ui/` — MainMenu (чипы врагов фильтруются по карте через `mapEnemyKinds`), GameHUD, Labels, Overlay, UnitPreview, icons
-- `src/sdk/YandexSDK.ts`, `src/main.ts`
+- `src/sdk/` — площадки (Web, CrazyGames, Poki), `src/main.ts`
 
 ## Свободная установка бойцов (стендов нет)
 Бойца можно поставить на любую ровную поверхность: землю, крыши, балконы, ящики, контейнеры. `game/Placement.ts`

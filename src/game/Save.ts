@@ -2,12 +2,12 @@ import type { DifficultyId, MapId, MatchResult, SaveData } from '../types/game';
 import { DIFFICULTIES, DIFFICULTY_ORDER } from '../data/difficulty';
 import { MAP_ORDER } from '../types/game';
 import { STARTER_UNITS, getUnit } from '../data/units';
-import type { YandexSDK } from '../sdk/YandexSDK';
+import type { Platform } from '../sdk/Platform';
 import { ADS_PER_GEM_REWARD, AD_CREDITS, CREDITS_PER_GEM, GEM_REWARD, gemPrice } from '../data/economy';
 
 /**
  * Мета-прогрессия: кредиты, открытые юниты, отряд и карты.
- * localStorage обёрнут в try/catch (приватный режим, запрет cookies) + облако Яндекса, если доступно.
+ * localStorage обёрнут в try/catch (приватный режим, запрет cookies) + облачное сохранение площадки (CrazyGames), если доступно.
  */
 
 const KEY = 'clutch-arena-td-save-v1';
@@ -90,9 +90,9 @@ function sanitize(raw: unknown): SaveData {
 
 export class SaveManager {
   data: SaveData;
-  private sdk: YandexSDK;
+  private sdk: Platform;
 
-  constructor(sdk: YandexSDK) {
+  constructor(sdk: Platform) {
     this.sdk = sdk;
     this.data = this.loadLocal();
   }

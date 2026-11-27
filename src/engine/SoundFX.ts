@@ -51,6 +51,8 @@ export class SoundFX {
       this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const data = this.noise.getChannelData(0);
       for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      // Звук уже удержан (реклама, скрытая вкладка, настройка портала) — контекст сразу на паузу
+      if (this.holds.size > 0) void this.ctx.suspend();
       return true;
     } catch {
       this.ctx = null;

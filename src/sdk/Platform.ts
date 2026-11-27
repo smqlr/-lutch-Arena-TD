@@ -1,9 +1,20 @@
+import type { Lang } from '../types/game';
+
 /**
  * Общий слой игровой площадки: реклама, события загрузки/геймплея, облачное сохранение, полноэкранный режим.
- * Реализации: Яндекс Игры, CrazyGames (SDK v3), Poki (SDK v2). Площадка выбирается при сборке (`vite build --mode`).
+ * Реализации: обычный сайт (без SDK), CrazyGames (SDK v3), Poki (SDK v2).
+ * Площадка выбирается при сборке: `vite build --mode crazygames | poki` (см. sdk/index.ts).
  */
 
-export type PlatformId = 'yandex' | 'crazygames' | 'poki';
+export type PlatformId = 'web' | 'crazygames' | 'poki';
+
+const RU_FAMILY = new Set(['ru', 'be', 'kk', 'uk', 'uz', 'hy', 'az', 'ky', 'tg', 'tk']);
+
+/** Язык интерфейса по коду локали площадки ('ru-RU', 'en'…) */
+export function langFromLocale(code: string | null | undefined): Lang | null {
+  if (!code) return null;
+  return RU_FAMILY.has(code.slice(0, 2).toLowerCase()) ? 'ru' : 'en';
+}
 
 export abstract class Platform {
   abstract readonly id: PlatformId;
@@ -29,7 +40,7 @@ export abstract class Platform {
     this.fallbackAd = fn;
   }
 
-  /** Можно ли выдавать награду через симуляцию без SDK (только вне порталов) */
+  /** Можно ли выдавать награду через симуляцию без SDK (только обычный сайт, не порталы) */
   protected allowSimulation(): boolean {
     return false;
   }
@@ -40,6 +51,11 @@ export abstract class Platform {
   /** Площадка сейчас глушит звук своей настройкой */
   platformMuted(): boolean {
     return false;
+  }
+
+  /** Язык пользователя на площадке (null — не известен) */
+  preferredLang(): Lang | null {
+    return null;
   }
 
   gameplayStart(): void {
@@ -123,6 +139,23 @@ export abstract class Platform {
 
   saveCloud(_data: unknown): void {}
 
+  /**
+   * Показ рекламы через колбэки SDK: onStart — реклама реально началась (пауза и тишина),
+   * run возвращает результат; onAdClose вызывается, только если реклама началась.
+   */
+  protected async adBreak<T>(run: (onStart: () => void) => Promise<T>): Promise<T> {
+    let opened = false;
+    try {
+      return await run(() => {
+        if (opened) return;
+        opened = true;
+        this.onAdOpen?.();
+      });
+    } finally {
+      if (opened) this.onAdClose?.();
+    }
+  }
+
   private async exclusive(run: () => Promise<void>): Promise<void> {
     if (this.adBusy || !this.available) return;
     this.adBusy = true;
@@ -157,6 +190,16 @@ export abstract class Platform {
 /** Промис с таймаутом: SDK площадок иногда не отвечают (блокировщики, офлайн) */
 export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([p, new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error('sdk timeout')), ms))]);
+}
+
+/** Вызов метода SDK, который может бросить исключение (старая версия, блокировщик) */
+export function safeCall(fn: () => unknown): void {
+  try {
+    const r = fn();
+    if (r instanceof Promise) r.catch(() => undefined);
+  } catch {
+    /* метод недоступен */
+  }
 }
 
 export function isLocalHost(): boolean {
